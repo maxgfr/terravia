@@ -73,6 +73,7 @@ export interface SaveFile {
     readonly badges: readonly string[];
     readonly terradexVus: readonly SpeciesId[];
     readonly terradexCaptures: readonly SpeciesId[];
+    readonly regionsVisitees: readonly number[];
   };
   readonly horloge: { readonly minutes: number };
   readonly prochainUid: number;

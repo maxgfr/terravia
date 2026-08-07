@@ -67,7 +67,11 @@ export class SceneCombat implements Scene {
   private attente = false;
   private tremblement = 0;
 
-  constructor(private readonly rencontre: Rencontre) {}
+  private readonly rencontre: Rencontre;
+
+  constructor(rencontre: Rencontre) {
+    this.rencontre = rencontre;
+  }
 
   entrer(jeu: Jeu): void {
     this.indexJoueur = jeu.state.equipe.findIndex((membre) => membre.pv > 0);

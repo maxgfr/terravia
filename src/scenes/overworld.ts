@@ -19,6 +19,7 @@ import {
   dresseurVaincu,
   equipeHorsCombat,
   marquerObjetRamasse,
+  marquerRegionVisitee,
   objetRamasse,
   phaseDuJour,
   poserDrapeau,
@@ -67,7 +68,23 @@ export class SceneOverworld implements Scene {
   private transitionEnCours = false;
 
   entrer(jeu: Jeu): void {
+    marquerRegionVisitee(jeu.state, jeu.state.joueur.regionIndex);
     this.annoncerRegion(jeu);
+    this.lancerDidacticiel(jeu);
+  }
+
+  /**
+   * Trois phrases, une seule fois, à la toute première sortie.
+   *
+   * Un jeu ouvert depuis un lien ne vient avec aucune notice : sans ces lignes, on ne
+   * sait ni où aller, ni ce que sont les touffes sombres. Le drapeau vit dans la
+   * sauvegarde, donc elles ne réapparaissent jamais.
+   */
+  private lancerDidacticiel(jeu: Jeu): void {
+    if (aDrapeau(jeu.state, 'didacticiel')) return;
+    poserDrapeau(jeu.state, 'didacticiel');
+    jeu.dialogue.dire(jeu.t('didacticiel.1'), jeu.t('didacticiel.2'), jeu.t('didacticiel.3'));
+    jeu.dialogue.puis(() => jeu.sauvegarderLocalement());
   }
 
   private region(jeu: Jeu): Region {
@@ -274,6 +291,7 @@ export class SceneOverworld implements Scene {
 
     const joueur = jeu.state.joueur;
     joueur.regionIndex = vers;
+    marquerRegionVisitee(jeu.state, vers);
     const cible = jeu.monde.region(vers);
 
     // On entre par la porte opposée : sortir au nord d'une région, c'est entrer par le

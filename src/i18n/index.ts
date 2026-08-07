@@ -19,7 +19,6 @@ const FR = {
   'titre.nouvellePartie': 'Nouvelle partie',
   'titre.continuer': 'Continuer',
   'titre.importer': 'Importer une sauvegarde',
-  'titre.langue': 'English',
   'titre.seed': 'Seed : {seed}',
   'titre.seedLibre': 'Cette seed décide du monde entier. Notez-la pour y revenir.',
   'titre.autreSeed': 'Tirer une autre seed',
@@ -49,10 +48,56 @@ const FR = {
   'menu.terradex': 'Terradex',
   'menu.reserve': 'Réserve',
   'menu.sauvegarde': 'Sauvegarde',
-  'menu.options': 'Options',
+  'menu.carte': 'Carte',
+  'menu.parametres': 'Paramètres',
   'menu.fermer': 'Fermer',
   'menu.vide': 'Rien ici.',
   'menu.retour': 'Retour',
+
+  // ── Paramètres ─────────────────────────────────────────────────────────────
+  'parametres.titre': 'Paramètres',
+  'parametres.langue': 'Langue : Français',
+  'parametres.commentJouer': 'Comment jouer',
+  'parametres.recommencer': 'Revenir à l’écran-titre',
+  'parametres.confirmerTitre': 'Revenir à l’écran-titre ? La partie en cours est déjà enregistrée.',
+
+  // ── Comment jouer ──────────────────────────────────────────────────────────
+  'aide.titre': 'Comment jouer',
+  'aide.page': '{page} / {total}',
+  'aide.suite': 'Entrée : suite · Échap : fermer',
+  'aide.but.titre': 'Le but',
+  'aide.but.texte':
+    'Vous partez du bourg avec une créature. L’arène est tout au nord, sept régions plus loin. Capturez, entraînez, et battez le champion.',
+  'aide.controles.titre': 'Se déplacer',
+  'aide.controles.texte':
+    'Flèches ou ZQSD pour marcher. Entrée ou E pour parler, lire un panneau, ramasser. Échap ou M ouvre le menu. Sur téléphone, les boutons à l’écran font la même chose.',
+  'aide.herbes.titre': 'Les hautes herbes',
+  'aide.herbes.texte':
+    'Les touffes sombres cachent des créatures sauvages. Y marcher déclenche parfois un combat. Les chemins et les villages sont sûrs.',
+  'aide.capture.titre': 'Capturer',
+  'aide.capture.texte':
+    'En combat, ouvrez le Sac et lancez un Prisme. Plus la cible est affaiblie ou endormie, plus il se referme. Une créature capturée rejoint votre équipe, ou la réserve si elle est pleine.',
+  'aide.seed.titre': 'La seed',
+  'aide.seed.texte':
+    'Le monde entier est reconstruit à partir de la seed de votre partie. Notez-la : elle suffit à retrouver ce monde-ci, et à le faire découvrir à quelqu’un d’autre.',
+  'aide.sauvegarde.titre': 'Sauvegarder',
+  'aide.sauvegarde.texte':
+    'La partie s’enregistre toute seule dans ce navigateur. Depuis le menu, vous pouvez l’exporter en fichier JSON, puis la réimporter ici ou ailleurs — glissez simplement le fichier sur la page.',
+
+  // ── Carte ──────────────────────────────────────────────────────────────────
+  'carte.titre': 'Carte',
+  'carte.vous': 'Vous êtes ici',
+  'carte.inconnue': 'Région non explorée',
+  'carte.legende': '♦ vous · ▶ sortie · ♥ objet',
+  'carte.progression': 'Région {index} sur {total}',
+
+  // ── Didacticiel de première partie ─────────────────────────────────────────
+  'didacticiel.1':
+    'Vous voilà dehors. L’arène est plein nord — il faut traverser sept régions pour y arriver.',
+  'didacticiel.2':
+    'Marchez avec les flèches. Parlez aux gens et lisez les panneaux avec Entrée : plusieurs donnent de bons conseils.',
+  'didacticiel.3':
+    'Les hautes herbes sombres abritent des créatures sauvages. Ouvrez le menu avec Échap pour votre équipe, votre sac et la carte.',
 
   // ── Sauvegarde ─────────────────────────────────────────────────────────────
   'sauvegarde.exporter': 'Exporter en JSON',
@@ -208,7 +253,6 @@ const EN: Record<CleTexte, string> = {
   'titre.nouvellePartie': 'New game',
   'titre.continuer': 'Continue',
   'titre.importer': 'Import a save',
-  'titre.langue': 'Français',
   'titre.seed': 'Seed: {seed}',
   'titre.seedLibre': 'This seed decides the whole world. Note it down to come back.',
   'titre.autreSeed': 'Roll another seed',
@@ -235,10 +279,51 @@ const EN: Record<CleTexte, string> = {
   'menu.terradex': 'Terradex',
   'menu.reserve': 'Storage',
   'menu.sauvegarde': 'Save',
-  'menu.options': 'Options',
+  'menu.carte': 'Map',
+  'menu.parametres': 'Settings',
   'menu.fermer': 'Close',
   'menu.vide': 'Nothing here.',
   'menu.retour': 'Back',
+
+  'parametres.titre': 'Settings',
+  'parametres.langue': 'Language: English',
+  'parametres.commentJouer': 'How to play',
+  'parametres.recommencer': 'Back to the title screen',
+  'parametres.confirmerTitre': 'Return to the title screen? The current game is already saved.',
+
+  'aide.titre': 'How to play',
+  'aide.page': '{page} / {total}',
+  'aide.suite': 'Enter: next · Escape: close',
+  'aide.but.titre': 'The goal',
+  'aide.but.texte':
+    'You leave the hamlet with one creature. The arena lies due north, seven regions away. Catch, train, and beat the champion.',
+  'aide.controles.titre': 'Moving around',
+  'aide.controles.texte':
+    'Arrows or WASD to walk. Enter or E to talk, read a sign, pick things up. Escape or M opens the menu. On a phone, the on-screen buttons do the same.',
+  'aide.herbes.titre': 'Tall grass',
+  'aide.herbes.texte':
+    'The dark tufts hide wild creatures. Walking into them sometimes starts a battle. Paths and villages are safe.',
+  'aide.capture.titre': 'Catching',
+  'aide.capture.texte':
+    'In battle, open the Bag and throw a Prism. The weaker or sleepier the target, the better it holds. A caught creature joins your team, or storage if it is full.',
+  'aide.seed.titre': 'The seed',
+  'aide.seed.texte':
+    'The whole world is rebuilt from your game’s seed. Write it down: it is all you need to find this world again, or to show it to someone else.',
+  'aide.sauvegarde.titre': 'Saving',
+  'aide.sauvegarde.texte':
+    'The game saves itself in this browser. From the menu you can export it as a JSON file and import it back here or elsewhere — just drop the file onto the page.',
+
+  'carte.titre': 'Map',
+  'carte.vous': 'You are here',
+  'carte.inconnue': 'Region not explored',
+  'carte.legende': '♦ you · ▶ exit · ♥ item',
+  'carte.progression': 'Region {index} of {total}',
+
+  'didacticiel.1': 'You are outside. The arena is due north — seven regions to cross to reach it.',
+  'didacticiel.2':
+    'Walk with the arrows. Talk to people and read signs with Enter: several of them give good advice.',
+  'didacticiel.3':
+    'The dark tall grass hides wild creatures. Open the menu with Escape for your team, your bag and the map.',
 
   'sauvegarde.exporter': 'Export as JSON',
   'sauvegarde.importer': 'Import a JSON',

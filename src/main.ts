@@ -15,6 +15,7 @@ import { Jeu } from './game/jeu.ts';
 import { creerPartie } from './game/state.ts';
 import { installerDepotFichier, lireLanguePreferee } from './save/storage.ts';
 import { SceneTitre } from './scenes/titre.ts';
+import { SceneParametres } from './scenes/parametres.ts';
 import { traiterImport } from './scenes/menu.ts';
 import { Peintre } from './ui/draw.ts';
 import { LANGUES, type Langue } from './i18n/index.ts';
@@ -39,9 +40,12 @@ function afficherErreur(message: string): void {
 
 async function demarrer(): Promise<void> {
   const hote = document.getElementById('app');
-  if (!hote) throw new Error('#app introuvable');
+  const scene = document.getElementById('scene');
+  if (!hote || !scene) throw new Error('#app introuvable');
 
-  const viewport = createViewport(hote);
+  // Le canvas est dimensionné d'après #scene, qui ne contient que lui ; les contrôles
+  // tactiles sont un frère, pas une superposition.
+  const viewport = createViewport(scene);
   const assets = await chargerAssets();
   const peintre = new Peintre(viewport.ctx, assets);
   const entrees = creerEntrees(hote);
@@ -58,6 +62,12 @@ async function demarrer(): Promise<void> {
   // Un fichier déposé n'importe où sur la page est traité comme un import : c'est le
   // chemin le plus court entre « j'ai reçu une sauvegarde » et « je joue ».
   installerDepotFichier((contenu) => traiterImport(jeu, contenu));
+
+  // L'engrenage porte le choix de la langue : il doit rester atteignable depuis
+  // n'importe quel écran, y compris le tout premier, avant d'avoir compris le reste.
+  document.getElementById('parametres')?.addEventListener('click', () => {
+    jeu.ouvrirParametres(() => new SceneParametres());
+  });
 
   const boucle = createLoop({
     update: (step) => {

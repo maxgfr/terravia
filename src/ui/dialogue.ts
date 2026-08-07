@@ -33,7 +33,11 @@ export class BoiteDialogue {
   private selection = 0;
   private surFin: (() => void) | null = null;
 
-  constructor(private readonly peintre: Peintre) {}
+  private readonly peintre: Peintre;
+
+  constructor(peintre: Peintre) {
+    this.peintre = peintre;
+  }
 
   get actif(): boolean {
     return this.courant !== null || this.question !== null;

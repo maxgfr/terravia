@@ -218,6 +218,16 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
           'progression.terradexCaptures',
           SPECIES_IDS,
         ),
+        // Champ ajouté après la première version publiée : une sauvegarde qui ne le
+        // porte pas reste valide, et le joueur retrouve au moins sa région courante.
+        regionsVisitees: [
+          ...new Set(
+            tableau(progressionBrute.regionsVisitees ?? [], 'progression.regionsVisitees').map(
+              (valeur, index) =>
+                entier(valeur, `progression.regionsVisitees[${index}]`, 0, NOMBRE_REGIONS - 1),
+            ),
+          ),
+        ],
       },
       horloge: { minutes: entier(objet(document.horloge ?? {}, 'horloge').minutes ?? 0, 'horloge.minutes', 0, 1439) },
       prochainUid: entier(document.prochainUid ?? 1, 'prochainUid', 1, 1_000_000),

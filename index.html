@@ -34,16 +34,51 @@
         overscroll-behavior: none;
         touch-action: none;
       }
+      /* Colonne : la scène prend toute la place disponible, les contrôles tactiles
+         occupent le bas. Le canvas est ainsi dimensionné d'après l'espace qui lui
+         reste réellement, au lieu de se superposer aux boutons. */
       #app {
         position: fixed;
         inset: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      #scene {
+        flex: 1;
+        min-height: 0;
         display: grid;
         place-items: center;
+        padding: 4px;
       }
       canvas {
         display: block;
         image-rendering: pixelated;
         touch-action: none;
+      }
+
+      /* Réglages : toujours accessible, au-dessus de tout, coin supérieur droit. */
+      #parametres {
+        position: fixed;
+        top: calc(8px + env(safe-area-inset-top));
+        right: calc(8px + env(safe-area-inset-right));
+        z-index: 10;
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        font: inherit;
+        font-size: 18px;
+        color: #e6edf3;
+        background: rgba(11, 15, 20, 0.55);
+        border: 1px solid rgba(244, 241, 230, 0.24);
+        border-radius: 10px;
+        cursor: pointer;
+        backdrop-filter: blur(4px);
+      }
+      #parametres:hover,
+      #parametres:focus-visible {
+        background: rgba(224, 160, 60, 0.45);
+        outline: none;
       }
       /* Écran affiché avant que le JS ne prenne la main, et si le JS échoue. */
       #boot {
@@ -72,14 +107,11 @@
          restent assez grands pour le pouce. Ils disparaissent dès qu'un pointeur fin
          est disponible — sur desktop, ils n'apparaissent jamais. */
       .tactile {
-        position: fixed;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        flex: 0 0 auto;
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
-        padding: 1rem 1.25rem calc(1rem + env(safe-area-inset-bottom));
+        padding: 0.5rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
         pointer-events: none;
         user-select: none;
       }
@@ -137,7 +169,8 @@
     </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><div id="scene"></div></div>
+    <button id="parametres" type="button" aria-label="Paramètres" title="Paramètres">⚙</button>
     <div id="boot">TERRAVIA</div>
     <noscript>
       <div style="position: fixed; inset: 0; display: grid; place-items: center">

@@ -45,12 +45,12 @@ export class Jeu {
   readonly rng: Rng;
   private readonly pile: Scene[] = [];
 
-  constructor(
-    readonly peintre: Peintre,
-    readonly entrees: Entrees,
-    state: GameState,
-    graine: number,
-  ) {
+  readonly peintre: Peintre;
+  readonly entrees: Entrees;
+
+  constructor(peintre: Peintre, entrees: Entrees, state: GameState, graine: number) {
+    this.peintre = peintre;
+    this.entrees = entrees;
     this.state = state;
     this.monde = creerMonde(state.seedText);
     this.dialogue = new BoiteDialogue(peintre);
@@ -78,6 +78,18 @@ export class Jeu {
     this.pousser(scene);
   }
 
+  /**
+   * Ouvre les réglages, quel que soit l'écran courant.
+   *
+   * Appelé par l'engrenage du coin supérieur droit, qui vit dans le DOM et non sur le
+   * canvas : il reste donc atteignable même pendant un dialogue. On refuse simplement
+   * de l'empiler deux fois.
+   */
+  ouvrirParametres(fabrique: () => Scene): void {
+    if (this.sommet?.nom === 'parametres') return;
+    this.pousser(fabrique());
+  }
+
   mettreAJour(step: number): void {
     this.sommet?.mettreAJour(this, step);
   }
@@ -85,9 +97,11 @@ export class Jeu {
   dessiner(): void {
     // On remonte jusqu'à la dernière scène opaque, puis on redescend : une scène
     // translucide (un menu) laisse ainsi voir le monde derrière elle.
-    let premier = this.pile.length - 1;
+    // `Math.max(0, …)` n'est pas décoratif : sur une pile vide, l'index partirait à −1
+    // et le rendu planterait au lieu de ne rien dessiner.
+    let premier = Math.max(0, this.pile.length - 1);
     while (premier > 0 && !this.pile[premier]!.opaque) premier -= 1;
-    for (let i = premier; i < this.pile.length; i++) this.pile[i]!.dessiner(this);
+    for (let i = premier; i < this.pile.length; i++) this.pile[i]?.dessiner(this);
   }
 
   // ── Changement de partie ───────────────────────────────────────────────────

@@ -24,10 +24,20 @@ import { exporterCreature, exporterPartie, nomFichier, chargerDepuisTexte, charg
 import { choisirFichier, telecharger } from '../save/storage.ts';
 import { accueillirCreature, prochainIdentifiant } from '../game/state.ts';
 import { COULEURS } from '../ui/draw.ts';
+import { SceneCarte } from './carte.ts';
+import { SceneParametres } from './parametres.ts';
 
 type Onglet = 'racine' | 'equipe' | 'fiche' | 'sac' | 'terradex' | 'sauvegarde';
 
-const ENTREES_RACINE = ['menu.equipe', 'menu.sac', 'menu.terradex', 'menu.sauvegarde', 'menu.fermer'] as const;
+const ENTREES_RACINE = [
+  'menu.equipe',
+  'menu.sac',
+  'menu.carte',
+  'menu.terradex',
+  'menu.sauvegarde',
+  'menu.parametres',
+  'menu.fermer',
+] as const;
 const ENTREES_SAUVEGARDE = [
   'sauvegarde.exporter',
   'sauvegarde.importer',
@@ -98,11 +108,17 @@ export class SceneMenu implements Scene {
       case 'menu.sac':
         this.aller('sac');
         break;
+      case 'menu.carte':
+        jeu.pousser(new SceneCarte());
+        break;
       case 'menu.terradex':
         this.aller('terradex');
         break;
       case 'menu.sauvegarde':
         this.aller('sauvegarde');
+        break;
+      case 'menu.parametres':
+        jeu.pousser(new SceneParametres());
         break;
       default:
         jeu.retirer();

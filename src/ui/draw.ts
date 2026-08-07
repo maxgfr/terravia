@@ -37,12 +37,16 @@ export interface OptionsTexte {
 }
 
 export class Peintre {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly assets: Assets;
   private readonly teindrePolice: (couleur: string) => CanvasImageSource;
 
-  constructor(
-    readonly ctx: CanvasRenderingContext2D,
-    readonly assets: Assets,
-  ) {
+  // Les champs sont affectés explicitement plutôt que déclarés en paramètres : les
+  // propriétés de constructeur TypeScript ne survivent pas au simple dépouillement de
+  // types de Node, et on tient à ce que chaque fichier reste exécutable sans bundler.
+  constructor(ctx: CanvasRenderingContext2D, assets: Assets) {
+    this.ctx = ctx;
+    this.assets = assets;
     this.teindrePolice = creerTeinturier(assets.police.image);
   }
 
@@ -132,6 +136,36 @@ export class Peintre {
       lignes.push(ligne);
     }
     return lignes;
+  }
+
+  /**
+   * Texte centré et découpé sur plusieurs lignes. Renvoie la hauteur occupée.
+   *
+   * À 320 pixels de large, une phrase de plus de cinquante caractères sort du cadre.
+   * Tout texte long affiché hors boîte de dialogue doit donc passer par ici — un
+   * `texteCentre` brut déborde silencieusement.
+   */
+  texteCentreBloc(
+    contenu: string,
+    centreX: number,
+    y: number,
+    largeurMax: number,
+    options: OptionsTexte = {},
+  ): number {
+    const lignes = this.decouper(contenu, largeurMax);
+    lignes.forEach((ligne, index) => {
+      this.texteCentre(ligne, centreX, y + index * this.hauteurLigne, options);
+    });
+    return lignes.length * this.hauteurLigne;
+  }
+
+  /** Texte aligné à gauche et découpé. Renvoie la hauteur occupée. */
+  texteBloc(contenu: string, x: number, y: number, largeurMax: number, options: OptionsTexte = {}): number {
+    const lignes = this.decouper(contenu, largeurMax);
+    lignes.forEach((ligne, index) => {
+      this.texte(ligne, x, y + index * this.hauteurLigne, options);
+    });
+    return lignes.length * this.hauteurLigne;
   }
 
   // ── Cadres ─────────────────────────────────────────────────────────────────

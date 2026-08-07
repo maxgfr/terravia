@@ -34,6 +34,12 @@ export interface Progression {
   badges: string[];
   terradexVus: SpeciesId[];
   terradexCaptures: SpeciesId[];
+  /**
+   * Régions déjà traversées. La carte n'affiche que celles-ci : on ne dévoile pas
+   * l'itinéraire d'avance. Le champ est suivi explicitement plutôt que déduit de la
+   * position, parce qu'une partie importée peut avoir sauté des étapes.
+   */
+  regionsVisitees: number[];
 }
 
 export interface Joueur {
@@ -90,6 +96,7 @@ export function creerPartie(seedText: string, langue: Langue, nom = 'Terra'): Ga
       badges: [],
       terradexVus: [],
       terradexCaptures: [],
+      regionsVisitees: [0],
     },
     // Le jeu commence en milieu de matinée : le joueur voit d'abord le monde en plein
     // jour, et découvre le cycle nocturne plus tard.
@@ -285,6 +292,14 @@ export function marquerCapture(state: GameState, species: SpeciesId): void {
   if (!state.progression.terradexCaptures.includes(species)) {
     state.progression.terradexCaptures.push(species);
   }
+}
+
+export function regionVisitee(state: GameState, index: number): boolean {
+  return state.progression.regionsVisitees.includes(index);
+}
+
+export function marquerRegionVisitee(state: GameState, index: number): void {
+  if (!regionVisitee(state, index)) state.progression.regionsVisitees.push(index);
 }
 
 export function aBadge(state: GameState, badge: string): boolean {

@@ -119,6 +119,7 @@ export function exporterPartie(state: GameState, maintenant: string): SaveFile {
       badges: [...state.progression.badges],
       terradexVus: [...state.progression.terradexVus],
       terradexCaptures: [...state.progression.terradexCaptures],
+      regionsVisitees: [...state.progression.regionsVisitees],
     },
     horloge: { minutes: Math.round(state.horloge.minutes) },
     prochainUid: state.prochainUid,
@@ -148,6 +149,11 @@ export function importerPartie(document: SaveFile): GameState {
     badges: [...document.progression.badges],
     terradexVus: [...document.progression.terradexVus],
     terradexCaptures: [...document.progression.terradexCaptures],
+    // Une sauvegarde d'avant ce champ ne connaît que la région où elle s'est arrêtée.
+    regionsVisitees:
+      document.progression.regionsVisitees.length > 0
+        ? [...document.progression.regionsVisitees]
+        : [document.joueur.regionIndex],
   };
   state.horloge = { minutes: document.horloge.minutes };
   // L'identifiant suivant doit dépasser tous ceux déjà utilisés, y compris ceux venus

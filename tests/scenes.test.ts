@@ -29,6 +29,11 @@ import { SPECIES_IDS } from '../src/data/species.ts';
 import { TILE_IDS } from '../src/world/tiles.ts';
 import { STARTER_IDS } from '../src/data/species.ts';
 import { creerMonde } from '../src/world/worldgen.ts';
+import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../src/core/viewport.ts';
+import { SceneAide } from '../src/scenes/aide.ts';
+import { SceneParametres } from '../src/scenes/parametres.ts';
+import { SceneCarte } from '../src/scenes/carte.ts';
+import { LANGUES } from '../src/i18n/index.ts';
 
 /** Compte les appels de dessin : un écran qui ne dessine rien est un écran noir. */
 let appelsDessin = 0;
@@ -120,6 +125,41 @@ class EntreesSimulees implements Entrees {
   }
 }
 
+/**
+ * Débordements de texte relevés pendant la trame.
+ *
+ * C'est la mesure qui manquait : un `texteCentre` sur une phrase de soixante caractères
+ * sort du cadre sans que rien ne le signale — ni le typage, ni le rendu, qui se contente
+ * de dessiner hors écran. On instrumente donc le peintre pour relever chaque écriture
+ * qui dépasse.
+ */
+interface Debordement {
+  readonly texte: string;
+  readonly gauche: number;
+  readonly droite: number;
+}
+
+let debordements: Debordement[] = [];
+
+/**
+ * Remplace `texte()` par une version qui mesure avant de dessiner.
+ *
+ * Le contrôle porte aussi sur la verticale : la légende de la carte se dessinait sous
+ * le bord inférieur de l'écran, où elle n'existait tout simplement pas pour le joueur.
+ * Un texte hors cadre ne lève aucune erreur — il faut aller le mesurer.
+ */
+function surveillerTexte(peintre: Peintre): void {
+  const original = peintre.texte.bind(peintre);
+  peintre.texte = (contenu: string, x: number, y: number, options = {}) => {
+    const droite = x + peintre.largeurTexte(contenu);
+    const bas = y + peintre.hauteurLigne;
+    if (x < 0 || droite > VIRTUAL_WIDTH || y < 0 || bas > VIRTUAL_HEIGHT) {
+      debordements.push({ texte: contenu, gauche: x, droite });
+    }
+    original(contenu, x, y, options);
+  };
+}
+
 interface Banc {
   jeu: Jeu;
   entrees: EntreesSimulees;
@@ -138,10 +178,12 @@ interface Banc {
   agir(action: ActionJeu, trames?: number): Promise<void>;
 }
 
-function creerBanc(): Banc {
+function creerBanc(langue: 'fr' | 'en' = 'fr'): Banc {
   const entrees = new EntreesSimulees();
   const peintre = new Peintre(contexteSimule(), assetsSimules());
-  const jeu = new Jeu(peintre, entrees, creerPartie('brume-3f7a', 'fr'), 1234);
+  surveillerTexte(peintre);
+  debordements = [];
+  const jeu = new Jeu(peintre, entrees, creerPartie('brume-3f7a', langue), 1234);
 
   const trame = (): void => {
     jeu.mettreAJour(1 / 60);
@@ -219,6 +261,9 @@ describe('monde parcouru', () => {
       }),
     );
     banc.jeu.pousser(new SceneOverworld());
+    // Le didacticiel s'ouvre à la première entrée et bloque volontairement les
+    // entrées ; ces tests-ci portent sur ce qui vient après.
+    banc.jeu.dialogue.vider();
     return banc;
   }
 
@@ -294,8 +339,8 @@ describe('menus', () => {
 
   it('parcourt tous les onglets sans erreur', async () => {
     const banc = bancMenu();
-    // Équipe → fiche → retour, puis sac, Terradex, sauvegarde.
-    for (const parcours of [0, 1, 2, 3]) {
+    // Équipe (0), Sac (1), Carte (2), Terradex (3), Sauvegarde (4), Paramètres (5).
+    for (const parcours of [0, 1, 2, 3, 4, 5]) {
       for (let i = 0; i < parcours; i++) await banc.agir('sud', 2);
       appelsDessin = 0;
       await banc.agir('valider', 3);
@@ -303,6 +348,8 @@ describe('menus', () => {
       await banc.agir('annuler', 2);
       for (let i = 0; i < parcours; i++) await banc.agir('nord', 2);
     }
+    // On est revenu au menu, pas ailleurs.
+    expect(banc.jeu.sommet?.nom).toBe('menu');
   });
 
   it('affiche la fiche détaillée d’une créature', async () => {
@@ -324,6 +371,150 @@ describe('menus', () => {
     }
     banc.trame();
     expect(appelsDessin).toBeGreaterThan(0);
+  });
+});
+
+describe('aucun texte ne sort du cadre', () => {
+  /** Écrans à traverser, dans les deux langues : c'est là qu'on écrivait hors cadre. */
+  async function parcourirEcransDeDepart(langue: 'fr' | 'en'): Promise<Debordement[]> {
+    const banc = creerBanc(langue);
+    banc.jeu.pousser(new SceneTitre('brume-3f7a'));
+    banc.trame(); // accueil
+    await banc.agir('valider', 3); // écran de seed
+    banc.trame();
+    await banc.agir('sud', 2);
+    await banc.agir('valider', 3); // choix du starter
+    banc.trame();
+    return debordements;
+  }
+
+  for (const langue of LANGUES) {
+    it(`tient dans la largeur sur les écrans de départ (${langue})`, async () => {
+      const trouves = await parcourirEcransDeDepart(langue);
+      expect(trouves.map((d) => `${d.texte} → ${Math.round(d.droite)}px`)).toEqual([]);
+    });
+  }
+
+  it('tient dans la largeur sur les six pages de l’aide, dans les deux langues', async () => {
+    for (const langue of LANGUES) {
+      const banc = creerBanc(langue);
+      banc.jeu.pousser(new SceneAide());
+      for (let page = 0; page < 6; page++) {
+        banc.trame();
+        await banc.agir('est', 1);
+      }
+      expect(debordements.map((d) => `${langue} : ${d.texte}`)).toEqual([]);
+    }
+  });
+
+  it('tient dans la largeur sur les réglages et la carte', async () => {
+    for (const langue of LANGUES) {
+      const banc = creerBanc(langue);
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(9), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: 'folianz',
+          niveau: 5,
+          origine: 'brume-3f7a',
+        }),
+      );
+      banc.jeu.pousser(new SceneParametres());
+      banc.trame();
+      banc.jeu.retirer();
+      banc.jeu.pousser(new SceneCarte());
+      banc.trame();
+      expect(debordements.map((d) => `${langue} : ${d.texte}`)).toEqual([]);
+    }
+  });
+});
+
+describe('réglages', () => {
+  it('change la langue et la conserve', async () => {
+    const banc = creerBanc('fr');
+    banc.jeu.pousser(new SceneParametres());
+    expect(banc.jeu.langue).toBe('fr');
+    await banc.agir('valider', 2);
+    expect(banc.jeu.langue).toBe('en');
+    await banc.agir('valider', 2);
+    expect(banc.jeu.langue).toBe('fr');
+  });
+
+  it('ouvre « comment jouer » puis revient aux réglages', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneParametres());
+    await banc.agir('sud', 2);
+    await banc.agir('valider', 2);
+    expect(banc.jeu.sommet?.nom).toBe('aide');
+    await banc.agir('annuler', 2);
+    expect(banc.jeu.sommet?.nom).toBe('parametres');
+  });
+
+  it('ne s’empile jamais deux fois', () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneTitre('brume-3f7a'));
+    banc.jeu.ouvrirParametres(() => new SceneParametres());
+    banc.jeu.ouvrirParametres(() => new SceneParametres());
+    banc.jeu.retirer();
+    expect(banc.jeu.sommet?.nom).toBe('titre');
+  });
+});
+
+describe('aide', () => {
+  it('se ferme après la dernière page plutôt que de boucler', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneAide());
+    for (let page = 0; page < 6; page++) await banc.agir('valider', 1);
+    expect(banc.jeu.sommet?.nom).not.toBe('aide');
+  });
+
+  it('dessine chacune de ses pages', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneAide());
+    for (let page = 0; page < 6; page++) {
+      appelsDessin = 0;
+      banc.trame();
+      expect(appelsDessin, `page ${page}`).toBeGreaterThan(20);
+      await banc.agir('est', 1);
+    }
+  });
+});
+
+describe('carte', () => {
+  it('dessine la région courante et se referme', async () => {
+    const banc = creerBanc();
+    const depart = creerMonde('brume-3f7a').region(0).depart;
+    banc.jeu.state.joueur.x = depart.x;
+    banc.jeu.state.joueur.y = depart.y;
+    banc.jeu.pousser(new SceneCarte());
+    appelsDessin = 0;
+    banc.trame();
+    // Une miniature de 48 × 36 cases : le compte de rectangles est forcément élevé.
+    expect(appelsDessin).toBeGreaterThan(1700);
+    await banc.agir('annuler', 1);
+    expect(banc.jeu.sommet?.nom).not.toBe('carte');
+  });
+
+  it('n’affiche comme visitées que les régions traversées', () => {
+    const banc = creerBanc();
+    expect(banc.jeu.state.progression.regionsVisitees).toEqual([0]);
+    banc.jeu.state.joueur.regionIndex = 2;
+    banc.jeu.pousser(new SceneOverworld());
+    expect(banc.jeu.state.progression.regionsVisitees).toContain(2);
+    expect(banc.jeu.state.progression.regionsVisitees).not.toContain(5);
+  });
+});
+
+describe('didacticiel', () => {
+  it('se déclenche une seule fois, à la première sortie', () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneOverworld());
+    expect(banc.jeu.dialogue.actif, 'le didacticiel doit parler la première fois').toBe(true);
+    banc.jeu.dialogue.vider();
+
+    banc.jeu.retirer();
+    banc.jeu.pousser(new SceneOverworld());
+    expect(banc.jeu.dialogue.actif, 'il ne doit plus rien dire ensuite').toBe(false);
   });
 });
 

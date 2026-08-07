@@ -12,9 +12,11 @@ import { creerCreature } from '../game/creature.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import { accueillirCreature, creerPartie, poserDrapeau, prochainIdentifiant } from '../game/state.ts';
 import { chargerDepuisTexte } from '../save/serialize.ts';
-import { choisirFichier, enregistrerLanguePreferee, lireSauvegardeLocale } from '../save/storage.ts';
+import { choisirFichier, lireSauvegardeLocale } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
+import type { CleTexte } from '../i18n/index.ts';
 import { SceneOverworld } from './overworld.ts';
+import { SceneAide } from './aide.ts';
 import { traiterImport } from './menu.ts';
 
 type Ecran = 'accueil' | 'seed' | 'starter';
@@ -37,10 +39,14 @@ export class SceneTitre implements Scene {
     this.aUneSauvegarde = lireSauvegardeLocale() !== null;
   }
 
-  private get entrees(): readonly string[] {
+  /**
+   * La langue n'est plus dans ce menu : elle vit dans les réglages, atteignables par
+   * l'engrenage en haut à droite depuis n'importe quel écran.
+   */
+  private get entrees(): readonly CleTexte[] {
     return this.aUneSauvegarde
-      ? ['titre.continuer', 'titre.nouvellePartie', 'titre.importer', 'titre.langue']
-      : ['titre.nouvellePartie', 'titre.importer', 'titre.langue'];
+      ? ['titre.continuer', 'titre.nouvellePartie', 'titre.importer', 'parametres.commentJouer']
+      : ['titre.nouvellePartie', 'titre.importer', 'parametres.commentJouer'];
   }
 
   mettreAJour(jeu: Jeu, step: number): void {
@@ -76,9 +82,8 @@ export class SceneTitre implements Scene {
       case 'titre.importer':
         void this.importer(jeu);
         break;
-      case 'titre.langue':
-        jeu.state.langue = jeu.langue === 'fr' ? 'en' : 'fr';
-        enregistrerLanguePreferee(jeu.state.langue);
+      case 'parametres.commentJouer':
+        jeu.pousser(new SceneAide());
         break;
     }
   }
@@ -168,8 +173,14 @@ export class SceneTitre implements Scene {
       });
     });
 
-    peintre.texteCentre('TERRAVIA', VIRTUAL_WIDTH / 2, 26, { couleur: COULEURS.texteInverse });
-    peintre.texteCentre(jeu.t('titre.sousTitre'), VIRTUAL_WIDTH / 2, 40, { couleur: COULEURS.texteAttenue });
+    // L'écran de choix du starter n'affiche pas le titre : sa question tient sur deux
+    // lignes et venait se coller au sous-titre.
+    if (this.ecran !== 'starter') {
+      peintre.texteCentre('TERRAVIA', VIRTUAL_WIDTH / 2, 26, { couleur: COULEURS.texteInverse });
+      peintre.texteCentre(jeu.t('titre.sousTitre'), VIRTUAL_WIDTH / 2, 40, {
+        couleur: COULEURS.texteAttenue,
+      });
+    }
 
     if (this.ecran === 'accueil') this.dessinerAccueil(jeu);
     else if (this.ecran === 'seed') this.dessinerSeed(jeu);
@@ -182,12 +193,20 @@ export class SceneTitre implements Scene {
     const peintre = jeu.peintre;
     const entrees = this.entrees;
     const hauteur = entrees.length * 14 + 16;
-    peintre.panneau(VIRTUAL_WIDTH / 2 - 70, 62, 140, hauteur);
+
+    // Le panneau se dimensionne sur son entrée la plus longue : « Importer une
+    // sauvegarde » débordait d'une largeur fixée à l'œil, et débordera de toute autre
+    // dès qu'une traduction s'allongera.
+    const largeurTexte = Math.max(...entrees.map((cle) => peintre.largeurTexte(jeu.t(cle))));
+    const largeur = Math.min(VIRTUAL_WIDTH - 24, largeurTexte + 40);
+    const gauche = Math.round(VIRTUAL_WIDTH / 2 - largeur / 2);
+
+    peintre.panneau(gauche, 62, largeur, hauteur);
     entrees.forEach((cle, index) => {
       const y = 70 + index * 14;
       const choisi = index === this.selection;
-      if (choisi) peintre.texte('▶', VIRTUAL_WIDTH / 2 - 60, y, { couleur: COULEURS.selection });
-      peintre.texte(jeu.t(cle as never), VIRTUAL_WIDTH / 2 - 48, y, {
+      if (choisi) peintre.texte('▶', gauche + 8, y, { couleur: COULEURS.selection });
+      peintre.texte(jeu.t(cle), gauche + 20, y, {
         couleur: choisi ? COULEURS.texteAccent : COULEURS.texte,
       });
     });
@@ -201,25 +220,40 @@ export class SceneTitre implements Scene {
 
   private dessinerSeed(jeu: Jeu): void {
     const peintre = jeu.peintre;
-    peintre.panneau(24, 62, VIRTUAL_WIDTH - 48, 76);
-    peintre.texteCentre(jeu.t('titre.seedLibre'), VIRTUAL_WIDTH / 2, 70, { couleur: COULEURS.texteAttenue });
-    peintre.texteCentre(this.seedProposee, VIRTUAL_WIDTH / 2, 88, { couleur: COULEURS.texteAccent });
+    const marge = 20;
+    const largeurPanneau = VIRTUAL_WIDTH - marge * 2;
+    // Le texte est découpé avant d'être centré : à 320 pixels de large, cette phrase
+    // sortait du cadre en français comme en anglais. On mesure d'abord pour que le
+    // panneau s'adapte à la hauteur réelle, quelle que soit la langue.
+    const hauteurTexte = peintre.decouper(jeu.t('titre.seedLibre'), largeurPanneau - 20).length
+      * peintre.hauteurLigne;
+
+    peintre.panneau(marge, 62, largeurPanneau, hauteurTexte + 58);
+    peintre.texteCentreBloc(jeu.t('titre.seedLibre'), VIRTUAL_WIDTH / 2, 70, largeurPanneau - 20, {
+      couleur: COULEURS.texteAttenue,
+    });
+    peintre.texteCentre(this.seedProposee, VIRTUAL_WIDTH / 2, 74 + hauteurTexte, {
+      couleur: COULEURS.texteAccent,
+    });
 
     const options = [jeu.t('titre.autreSeed'), jeu.t('titre.commencer')];
     options.forEach((libelle, index) => {
-      const y = 106 + index * 14;
+      const y = 92 + hauteurTexte + index * 14;
       const choisi = index === this.selection;
-      if (choisi) peintre.texte('▶', 40, y, { couleur: COULEURS.selection });
-      peintre.texte(libelle, 52, y, { couleur: choisi ? COULEURS.texteAccent : COULEURS.texte });
+      if (choisi) peintre.texte('▶', marge + 14, y, { couleur: COULEURS.selection });
+      peintre.texte(libelle, marge + 26, y, { couleur: choisi ? COULEURS.texteAccent : COULEURS.texte });
     });
-    peintre.texteCentre(jeu.t('titre.retour'), VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 18, {
+    peintre.texteCentre(jeu.t('titre.retour'), VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 16, {
       couleur: COULEURS.texteAttenue,
     });
   }
 
   private dessinerStarter(jeu: Jeu): void {
     const peintre = jeu.peintre;
-    peintre.texteCentre(jeu.t('depart.question'), VIRTUAL_WIDTH / 2, 56, { couleur: COULEURS.texteInverse });
+    peintre.texteCentreBloc(jeu.t('depart.question'), VIRTUAL_WIDTH / 2, 24, VIRTUAL_WIDTH - 24, {
+      couleur: COULEURS.texteInverse,
+      ombre: true,
+    });
 
     STARTER_IDS.forEach((species, index) => {
       const x = 24 + index * 96;

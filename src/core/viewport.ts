@@ -42,16 +42,28 @@ export function createViewport(host: HTMLElement): Viewport {
 
   let scale = 1;
 
-  const resize = (): void => {
-    // On réserve une marge verticale sur les écrans étroits (portrait) pour les
-    // contrôles tactiles : le jeu occupe alors les deux tiers hauts.
-    const isPortrait = window.innerHeight > window.innerWidth;
-    const availableWidth = window.innerWidth;
-    const availableHeight = isPortrait ? window.innerHeight * 0.62 : window.innerHeight;
+  /**
+   * Le canvas se dimensionne d'après la place que son conteneur lui laisse réellement,
+   * mesurée à chaque changement de taille.
+   *
+   * Réserver un pourcentage fixe de la fenêtre — la version précédente prenait 62 % de
+   * la hauteur en portrait — se trompe dès que les contrôles tactiles changent de
+   * taille, que le clavier logiciel s'ouvre ou que la barre d'adresse se rétracte. La
+   * mesure directe est juste dans tous ces cas.
+   */
+  /** Dernière boîte de contenu observée, rembourrage exclu. */
+  let contenu: { largeur: number; hauteur: number } | null = null;
 
-    const raw = Math.min(availableWidth / VIRTUAL_WIDTH, availableHeight / VIRTUAL_HEIGHT);
+  const resize = (): void => {
+    // `contentRect` exclut le rembourrage, `clientWidth` non : mesurer avec le second
+    // ferait déborder le canvas de la largeur du rembourrage.
+    const largeurDispo = contenu?.largeur ?? host.clientWidth ?? window.innerWidth;
+    const hauteurDispo = contenu?.hauteur ?? host.clientHeight ?? window.innerHeight;
+    if (largeurDispo <= 0 || hauteurDispo <= 0) return;
+
+    const brut = Math.min(largeurDispo / VIRTUAL_WIDTH, hauteurDispo / VIRTUAL_HEIGHT);
     // Échelle entière dès qu'on a la place : c'est ce qui garde les pixels carrés.
-    scale = raw >= 1 ? Math.floor(raw) : raw;
+    scale = brut >= 1 ? Math.floor(brut) : brut;
 
     canvas.style.width = `${Math.round(VIRTUAL_WIDTH * scale)}px`;
     canvas.style.height = `${Math.round(VIRTUAL_HEIGHT * scale)}px`;
@@ -61,6 +73,15 @@ export function createViewport(host: HTMLElement): Viewport {
   };
 
   resize();
+  const observateur =
+    typeof ResizeObserver === 'function'
+      ? new ResizeObserver((entrees) => {
+          const rect = entrees[0]?.contentRect;
+          if (rect) contenu = { largeur: rect.width, hauteur: rect.height };
+          resize();
+        })
+      : null;
+  observateur?.observe(host);
   window.addEventListener('resize', resize, { passive: true });
   window.addEventListener('orientationchange', resize, { passive: true });
 
@@ -78,6 +99,7 @@ export function createViewport(host: HTMLElement): Viewport {
       };
     },
     destroy() {
+      observateur?.disconnect();
       window.removeEventListener('resize', resize);
       window.removeEventListener('orientationchange', resize);
       canvas.remove();
