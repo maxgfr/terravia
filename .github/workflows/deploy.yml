@@ -36,6 +36,16 @@ jobs:
       - name: Tests
         run: npm test
 
+      # L'art est commité. On le régénère et on exige un diff vide : une planche
+      # oubliée après un changement de code se voit ici, pas en jeu.
+      - name: L’art commité est-il à jour ?
+        run: |
+          npm run art
+          git diff --exit-code --stat public/art || {
+            echo "::error::public/art/ n’est plus synchronisé. Lancez « npm run art » et committez le résultat."
+            exit 1
+          }
+
       - name: Build
         run: npx vite build
 
