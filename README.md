@@ -1,101 +1,121 @@
 # Terravia
 
-RPG de capture de créatures dans un monde généré procéduralement. Tourne entièrement dans
-le navigateur, sans serveur ni compte : **https://maxgfr.github.io/terravia**
+A creature-collecting RPG set in a procedurally generated world. It runs entirely in
+your browser — no server, no account, no install: **https://maxgfr.github.io/terravia**
 
-Le bestiaire, les types, les attaques et les cartes sont originaux — Terravia s'inspire du
-genre, il n'emprunte à aucune œuvre existante.
+Every creature, type, move and region is original. Terravia borrows the genre, not the
+work of anyone else.
 
-## Ce qui rend Terravia particulier
+## Play
 
-**Le monde tient dans une seed.** La topologie des régions est fixe — elle porte la
-progression du jeu — mais le biome, le relief, le contenu et le placement des personnages
-de chaque région sont tirés d'une seed. Deux parties ne se ressemblent pas.
+Leave the hamlet with one creature, cross seven regions catching and battling your way
+north, and beat the arena champion.
 
-**Une sauvegarde pèse quelques kilo-octets.** Comme le monde se reconstruit depuis sa seed,
-un fichier de save ne contient que la seed et l'état du joueur : position, équipe, réserve,
-inventaire, progression. Pas une seule tuile.
+| | |
+|---|---|
+| **Keyboard** | Arrows or WASD to move · `Enter` / `E` to talk, read, pick up · `Escape` or `M` for the menu |
+| **Touch** | A D-pad and two buttons appear on devices without a mouse |
+| **Settings** | The ⚙ button, top right, on every screen — language, and how to play |
 
-**L'art est un artefact versionné.** Les sprites ne sont pas dessinés à la main ni générés
-à l'exécution : `npm run art` les produit de façon déterministe et les écrit en PNG dans
-`public/art/`, qui sont commités. On peut les regarder dans GitHub, en retoucher un, et
-voir un diff d'art en revue de code.
+The interface is available in English and French. English is the default; French is a
+complete translation, not a partial one.
 
-## Jouer
+## What makes it different
 
-**Clavier** — flèches ou ZQSD pour se déplacer, `Entrée` / `E` pour parler et valider,
-`Échap` pour revenir, `M` pour le menu.
-**Tactile** — une croix directionnelle et deux boutons apparaissent sur les écrans sans
-souris.
+**The whole world fits in a seed.** The region topology is fixed — it carries the
+progression: rising difficulty, a shop halfway, the boss at the end. Everything else —
+biome, terrain shape, contents, where every character stands — is derived from your
+game's seed. No two runs look alike, and sharing a seed shares a world.
 
-Une partie tient en une boucle courte : sortir du bourg avec sa créature de départ,
-traverser sept régions en capturant et en battant des dresseurs, puis passer l'arène.
-Le monde change à chaque seed ; celle de la partie en cours s'affiche dans le menu.
+**A save file is a few kilobytes.** Because the world rebuilds itself from the seed, a
+save holds only the seed and your state: position, team, storage, bag, progress. Not a
+single tile. A test verifies that a reloaded game regenerates region 2 byte for byte.
 
-## Contenu
+**The art is a versioned artifact.** Sprites are neither hand-drawn nor generated at
+runtime: `npm run art` produces them deterministically and writes PNGs into `public/art/`,
+which are committed. You can look at them on GitHub, retouch one by hand, and see an art
+diff in review. Continuous integration regenerates them and fails if the committed files
+have drifted.
 
-30 créatures en 12 lignées · 12 types avec quatre immunités · 53 attaques · 16 talents
-passifs · 8 régions · cycle jour/nuit qui change les rencontres.
+## Content
 
-## Démarrer
+30 creatures across 12 evolution lines · 12 elemental types with four immunities ·
+53 moves · 16 passive talents · 8 regions · a day/night cycle that changes which
+creatures appear.
+
+Each creature carries **genes** rolled at birth and **training points** earned in
+battle, so two specimens of the same species are never interchangeable.
+
+## Getting started
 
 ```bash
 npm install
-npm run dev        # serveur de développement
-npm test           # suite de tests
-npm run art        # régénère les sprites dans public/art/
-npm run build      # typecheck + build de production
+npm run dev        # development server
+npm test           # test suite
+npm run art        # regenerate the sprites into public/art/
+npm run build      # typecheck + production build
 ```
 
-Node 22.6+ est requis : les outils de génération d'art sont écrits en TypeScript et
-exécutés directement par Node, sans étape de compilation ni dépendance.
+Node 22.6+ is required: the art tools are written in TypeScript and executed directly by
+Node, with no compilation step and no dependencies.
 
-## Organisation du code
+## How the code is organised
 
-Trois couches, chacune testable seule :
+Three layers, each testable on its own:
 
-| Dossier | Rôle |
+| Directory | Role |
 |---|---|
-| `src/data/` | Contenu pur : types, attaques, espèces, objets, talents. Aucune logique. |
-| `src/world/`, `src/battle/`, `src/save/` | Moteur pur : aucune dépendance au DOM, entièrement testé. |
-| `src/core/`, `src/ui/` | Présentation : canvas, entrées, rendu. Ne décide d'aucune règle. |
-| `tools/art/` | Générateur de sprites (Node, zéro dépendance, encodeur PNG maison). |
+| `src/data/` | Pure content: types, moves, species, items, talents. No logic. |
+| `src/world/`, `src/battle/`, `src/save/` | Pure engine: no DOM, fully tested. |
+| `src/core/`, `src/ui/`, `src/scenes/` | Presentation: canvas, input, rendering. Decides no rules. |
+| `tools/art/` | Sprite generator (Node, zero dependencies, hand-written PNG encoder). |
 
-La règle qui tient l'ensemble : **l'interface de combat ne connaît aucune règle de combat**.
-Le moteur renvoie une liste d'événements (`damage`, `faint`, `message`) que l'interface joue
-en animation. Un combat entier se teste donc sans navigateur, et se rejoue à l'identique.
+The rule that holds it together: **the battle screen knows no battle rules**. The engine
+returns a list of events (`damage`, `faint`, `message`) that the interface replays as
+animation. A whole battle is therefore testable without a browser, and replays
+identically.
+
+## Save and trade
+
+The game saves itself in your browser as you play. From the menu you can export it as a
+JSON file and import it back — by file picker, by dropping the file anywhere on the page,
+or by pasting raw JSON. An invalid import shows the precise error (`unknown move:
+frostbolt`) and **never overwrites the game in progress**: a confirmation screen
+summarises the save first. A migration registry is in place from version 1, so the format
+can evolve without breaking existing games.
+
+You can also export a single creature and import it into another game.
+
+> **On trading:** with no server, nothing stops someone editing a file to hand themselves
+> a level 100 creature. The checksum detects a corrupted file, not a dishonest one.
+> Terravia is a single-player game — trading is sharing between people who trust each
+> other.
 
 ## Tests
 
-205 tests, exécutés en intégration continue avant chaque déploiement. Les plus utiles ne
-vérifient pas des détails mais des **invariants** :
+220 tests, run in continuous integration before every deploy. The useful ones don't check
+details, they check **invariants**:
 
-- aucune seed ne produit une région dont la sortie est inatteignable — vérifié sur 60 seeds ;
-- tout combat se termine, quelles que soient les deux créatures engagées ;
-- une partie exportée puis réimportée redonne un état identique, et le monde se
-  reconstruit octet pour octet depuis la seed ;
-- chaque caractère des textes du jeu existe dans la police, dans les deux langues ;
-- une créature de départ gagne plus de 60 % de ses combats sur la première route, et le
-  champion reste un mur à niveau 12 tout en étant franchissable à 42.
+- no seed produces a region whose exit is unreachable — verified across 60 seeds;
+- every battle terminates, whichever two creatures are involved;
+- an exported then reimported game returns an identical state, and the world rebuilds
+  byte for byte from the seed;
+- every character in the game's text exists in the font, in both languages;
+- a starter wins more than 60 % of its battles on the first route, and the champion is a
+  genuine wall at level 12 while remaining beatable at 42.
 
-Un test de fumée joue les écrans avec un canvas simulé — démarrage, choix du starter,
-déplacement, menus, combat complet — pour attraper les erreurs d'affichage qu'aucun test
-de logique ne verrait.
+A smoke test drives the screens against a simulated canvas — start-up, starter choice,
+walking, menus, a full battle — and measures every string drawn, so text that runs
+outside the frame fails the build instead of shipping.
 
-## Sauvegarde et échange
+## Deliberate limitations
 
-La partie est sauvegardée automatiquement dans le navigateur. Depuis le menu, on peut
-l'exporter en fichier JSON et la réimporter — par sélection de fichier, glisser-déposer sur
-la page, ou collage direct du JSON. Un import invalide affiche l'erreur précise et **n'écrase
-jamais la partie en cours** : un écran de confirmation résume la sauvegarde avant de la
-charger.
-
-On peut aussi exporter une créature seule et l'importer dans une autre partie.
-
-> **Sur l'échange :** sans serveur, rien n'empêche d'éditer un fichier pour se donner une
-> créature de niveau 100. La somme de contrôle détecte la corruption d'un fichier, pas la
-> triche. Terravia est un jeu solo — l'échange est un partage entre gens de confiance.
+- **No building interiors.** Doors are scenery and services keep an outdoor stall.
+  Modelling interiors would have doubled the world code for little gain.
+- **Integer scaling only.** The canvas scales by whole numbers so pixels stay square,
+  which leaves some margin on screens around 360 px wide.
+- **Trading is trust-based**, as described above.
 
 ## Licence
 
-Code sous licence MIT. Créatures, noms, designs et univers : originaux, même licence.
+MIT for the code. Creatures, names, designs and setting are original, same licence.

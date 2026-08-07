@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { CHARSET } from '../tools/art/font.ts';
 import { LANGUES, catalogue, clesTextes, estCleConnue, traduire } from '../src/i18n/index.ts';
+import { LANGUE_PAR_DEFAUT, langueParDefaut } from '../src/i18n/preference.ts';
+
+describe('langue au démarrage', () => {
+  it('démarre en anglais quand rien n’a été choisi', () => {
+    expect(langueParDefaut(null)).toBe('en');
+    expect(LANGUE_PAR_DEFAUT).toBe('en');
+  });
+
+  it('respecte une préférence déjà exprimée', () => {
+    expect(langueParDefaut('fr')).toBe('fr');
+    expect(langueParDefaut('en')).toBe('en');
+  });
+
+  it('ignore une valeur inconnue plutôt que de la propager', () => {
+    // Stockage corrompu ou venu d'une version plus ancienne : on retombe sur le défaut
+    // au lieu de laisser une langue inexistante traverser tout le jeu.
+    expect(langueParDefaut('klingon')).toBe('en');
+    expect(langueParDefaut('')).toBe('en');
+  });
+});
 
 /** Les noms de paramètres `{ainsi}` présents dans un modèle. */
 function parametres(modele: string): string[] {

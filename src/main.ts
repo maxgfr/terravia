@@ -18,14 +18,7 @@ import { SceneTitre } from './scenes/titre.ts';
 import { SceneParametres } from './scenes/parametres.ts';
 import { traiterImport } from './scenes/menu.ts';
 import { Peintre } from './ui/draw.ts';
-import { LANGUES, type Langue } from './i18n/index.ts';
-
-function langueParDefaut(): Langue {
-  const enregistree = lireLanguePreferee();
-  if (enregistree && (LANGUES as readonly string[]).includes(enregistree)) return enregistree as Langue;
-  // À défaut de préférence, on suit la langue du navigateur.
-  return navigator.language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
-}
+import { langueParDefaut } from './i18n/preference.ts';
 
 function afficherErreur(message: string): void {
   const boot = document.getElementById('boot');
@@ -53,7 +46,7 @@ async function demarrer(): Promise<void> {
   // La graine de session n'est pas celle du monde : les tirages de combat doivent
   // varier d'une partie à l'autre, contrairement au terrain.
   const graineSession = (Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0;
-  const langue = langueParDefaut();
+  const langue = langueParDefaut(lireLanguePreferee());
   const seedProposee = makeSeedText(makeRng(graineSession).next());
 
   const jeu = new Jeu(peintre, entrees, creerPartie(seedProposee, langue), graineSession);
