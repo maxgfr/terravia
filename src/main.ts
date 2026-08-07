@@ -1,77 +1,89 @@
-import { createLoop } from './core/loop.ts';
-import { createViewport, VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from './core/viewport.ts';
-import { makeRng } from './core/rng.ts';
-
 /**
- * Point d'entrée. À ce stade (étape 0) il valide la chaîne complète :
- * canvas → boucle à pas fixe → rendu → déploiement GitHub Pages.
- * L'écran-titre définitif et la machine à états arrivent aux étapes suivantes.
+ * Point d'entrée : charge l'art, câble les entrées et lance la boucle.
+ *
+ * Tout ce qui peut échouer au démarrage — une planche absente, un canvas indisponible —
+ * est rattrapé et affiché en clair. Un écran noir sans explication est le pire résultat
+ * possible pour un jeu servi depuis un simple lien.
  */
 
-const host = document.getElementById('app');
-if (!host) throw new Error('#app introuvable');
+import { chargerAssets } from './core/assets.ts';
+import { creerEntrees } from './core/input.ts';
+import { createLoop } from './core/loop.ts';
+import { makeSeedText, makeRng } from './core/rng.ts';
+import { createViewport } from './core/viewport.ts';
+import { Jeu } from './game/jeu.ts';
+import { creerPartie } from './game/state.ts';
+import { installerDepotFichier, lireLanguePreferee } from './save/storage.ts';
+import { SceneTitre } from './scenes/titre.ts';
+import { traiterImport } from './scenes/menu.ts';
+import { Peintre } from './ui/draw.ts';
+import { LANGUES, type Langue } from './i18n/index.ts';
 
-const viewport = createViewport(host);
-const { ctx } = viewport;
-
-// Un champ d'étoiles fixe, tiré d'une seed constante : le fond est le même à chaque visite.
-const stars = (() => {
-  const rng = makeRng(0x7e88a);
-  return Array.from({ length: 70 }, () => ({
-    x: rng.int(0, VIRTUAL_WIDTH - 1),
-    y: rng.int(0, VIRTUAL_HEIGHT - 1),
-    phase: rng.float(0, Math.PI * 2),
-    speed: rng.float(0.4, 1.6),
-    bright: rng.float(0.25, 1),
-  }));
-})();
-
-let time = 0;
-
-function update(step: number): void {
-  time += step;
+function langueParDefaut(): Langue {
+  const enregistree = lireLanguePreferee();
+  if (enregistree && (LANGUES as readonly string[]).includes(enregistree)) return enregistree as Langue;
+  // À défaut de préférence, on suit la langue du navigateur.
+  return navigator.language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
 }
 
-function render(): void {
-  ctx.fillStyle = '#0b0f14';
-  ctx.fillRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
-
-  for (const star of stars) {
-    const twinkle = 0.55 + 0.45 * Math.sin(time * star.speed + star.phase);
-    const alpha = star.bright * twinkle;
-    ctx.fillStyle = `rgba(126, 231, 178, ${alpha.toFixed(3)})`;
-    ctx.fillRect(star.x, star.y, 1, 1);
+function afficherErreur(message: string): void {
+  const boot = document.getElementById('boot');
+  if (boot) {
+    boot.textContent = message;
+    boot.classList.remove('gone');
+    boot.style.color = '#e05a4a';
+    boot.style.padding = '2rem';
+    boot.style.textAlign = 'center';
   }
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  ctx.fillStyle = '#e6edf3';
-  ctx.font = 'bold 28px ui-monospace, Menlo, monospace';
-  ctx.fillText('TERRAVIA', VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2 - 12);
-
-  ctx.fillStyle = '#7d8590';
-  ctx.font = '9px ui-monospace, Menlo, monospace';
-  ctx.fillText('un monde différent à chaque seed', VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2 + 14);
-
-  const pulse = 0.5 + 0.5 * Math.sin(time * 2.2);
-  ctx.fillStyle = `rgba(126, 231, 178, ${(0.35 + 0.5 * pulse).toFixed(3)})`;
-  ctx.font = '8px ui-monospace, Menlo, monospace';
-  ctx.fillText('étape 0 — chaîne de déploiement vérifiée', VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 18);
 }
 
-const loop = createLoop({ update, render });
-loop.start();
+async function demarrer(): Promise<void> {
+  const hote = document.getElementById('app');
+  if (!hote) throw new Error('#app introuvable');
 
-// Le voile de démarrage disparaît dès que la première trame est prête.
-requestAnimationFrame(() => {
+  const viewport = createViewport(hote);
+  const assets = await chargerAssets();
+  const peintre = new Peintre(viewport.ctx, assets);
+  const entrees = creerEntrees(hote);
+
+  // La graine de session n'est pas celle du monde : les tirages de combat doivent
+  // varier d'une partie à l'autre, contrairement au terrain.
+  const graineSession = (Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0;
+  const langue = langueParDefaut();
+  const seedProposee = makeSeedText(makeRng(graineSession).next());
+
+  const jeu = new Jeu(peintre, entrees, creerPartie(seedProposee, langue), graineSession);
+  jeu.pousser(new SceneTitre(seedProposee));
+
+  // Un fichier déposé n'importe où sur la page est traité comme un import : c'est le
+  // chemin le plus court entre « j'ai reçu une sauvegarde » et « je joue ».
+  installerDepotFichier((contenu) => traiterImport(jeu, contenu));
+
+  const boucle = createLoop({
+    update: (step) => {
+      jeu.mettreAJour(step);
+      entrees.finDeTrame();
+    },
+    render: () => jeu.dessiner(),
+  });
+  boucle.start();
+
   document.getElementById('boot')?.classList.add('gone');
   setTimeout(() => document.getElementById('boot')?.remove(), 400);
-});
 
-// Une page de jeu ne doit pas continuer à tourner quand elle n'est pas visible :
-// ça vide la batterie sur mobile pour rien.
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) loop.stop();
-  else loop.start();
+  // Une page de jeu ne doit pas tourner quand elle n'est pas visible : sur mobile,
+  // c'est de la batterie dépensée pour rien.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) boucle.stop();
+    else boucle.start();
+  });
+
+  // Dernier filet : la partie est enregistrée si l'onglet se ferme.
+  window.addEventListener('pagehide', () => jeu.sauvegarderLocalement());
+}
+
+demarrer().catch((erreur: unknown) => {
+  const message = erreur instanceof Error ? erreur.message : String(erreur);
+  afficherErreur(`Terravia n’a pas pu démarrer.\n${message}`);
+  console.error(erreur);
 });

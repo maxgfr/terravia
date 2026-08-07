@@ -65,6 +65,75 @@
         text-align: center;
         padding: 2rem;
       }
+
+      /* Contrôles tactiles.
+         Ils vivent dans le DOM, pas sur le canvas : ils profitent ainsi de la taille
+         réelle de l'écran plutôt que de la résolution virtuelle de 320 pixels, et
+         restent assez grands pour le pouce. Ils disparaissent dès qu'un pointeur fin
+         est disponible — sur desktop, ils n'apparaissent jamais. */
+      .tactile {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        padding: 1rem 1.25rem calc(1rem + env(safe-area-inset-bottom));
+        pointer-events: none;
+        user-select: none;
+      }
+      @media (pointer: fine) {
+        .tactile {
+          display: none;
+        }
+      }
+      .tactile button {
+        pointer-events: auto;
+        background: rgba(244, 241, 230, 0.14);
+        border: 1px solid rgba(244, 241, 230, 0.28);
+        color: #e6edf3;
+        font: inherit;
+        font-size: 18px;
+        border-radius: 12px;
+        width: 52px;
+        height: 52px;
+        display: grid;
+        place-items: center;
+        backdrop-filter: blur(4px);
+        transition: background 0.08s;
+      }
+      .tactile button.enfonce {
+        background: rgba(224, 160, 60, 0.5);
+      }
+      .tactile-croix {
+        display: grid;
+        grid-template-columns: repeat(3, 52px);
+        grid-template-rows: repeat(2, 52px);
+        gap: 4px;
+      }
+      .tactile-croix button[data-action='nord'] {
+        grid-area: 1 / 2;
+      }
+      .tactile-croix button[data-action='ouest'] {
+        grid-area: 2 / 1;
+      }
+      .tactile-croix button[data-action='sud'] {
+        grid-area: 2 / 2;
+      }
+      .tactile-croix button[data-action='est'] {
+        grid-area: 2 / 3;
+      }
+      .tactile-boutons {
+        display: flex;
+        gap: 8px;
+        align-items: flex-end;
+      }
+      .tactile-boutons button[data-action='valider'] {
+        width: 62px;
+        height: 62px;
+        background: rgba(126, 231, 178, 0.2);
+      }
     </style>
   </head>
   <body>

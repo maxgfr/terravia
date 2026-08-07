@@ -21,9 +21,10 @@ const FR = {
   'titre.importer': 'Importer une sauvegarde',
   'titre.langue': 'English',
   'titre.seed': 'Seed : {seed}',
-  'titre.seedLibre': 'Entrez une seed, ou laissez vide pour en tirer une',
+  'titre.seedLibre': 'Cette seed décide du monde entier. Notez-la pour y revenir.',
+  'titre.autreSeed': 'Tirer une autre seed',
   'titre.commencer': 'Commencer',
-  'titre.retour': 'Retour',
+  'titre.retour': 'Échap : retour',
 
   // ── Choix du starter ───────────────────────────────────────────────────────
   'depart.question': 'Trois créatures vous attendent. Laquelle vous accompagne ?',
@@ -68,6 +69,8 @@ const FR = {
   // ── Combat ─────────────────────────────────────────────────────────────────
   'combat.sauvage': 'Un {nom} sauvage surgit !',
   'combat.dresseur': '{dresseur} veut se battre !',
+  'combat.dresseurGenerique': 'Un dresseur',
+  'combat.championGenerique': 'Le champion d’arène',
   'combat.envoie': 'En avant, {nom} !',
   'combat.adversaireEnvoie': '{dresseur} envoie {nom} !',
   'combat.attaquer': 'Attaquer',
@@ -207,9 +210,10 @@ const EN: Record<CleTexte, string> = {
   'titre.importer': 'Import a save',
   'titre.langue': 'Français',
   'titre.seed': 'Seed: {seed}',
-  'titre.seedLibre': 'Enter a seed, or leave blank to roll one',
+  'titre.seedLibre': 'This seed decides the whole world. Note it down to come back.',
+  'titre.autreSeed': 'Roll another seed',
   'titre.commencer': 'Begin',
-  'titre.retour': 'Back',
+  'titre.retour': 'Escape: back',
 
   'depart.question': 'Three creatures are waiting. Which one comes with you?',
   'depart.confirmer': 'Set out with {nom}?',
@@ -249,6 +253,8 @@ const EN: Record<CleTexte, string> = {
 
   'combat.sauvage': 'A wild {nom} appears!',
   'combat.dresseur': '{dresseur} wants to battle!',
+  'combat.dresseurGenerique': 'A trainer',
+  'combat.championGenerique': 'The arena champion',
   'combat.envoie': 'Go, {nom}!',
   'combat.adversaireEnvoie': '{dresseur} sends out {nom}!',
   'combat.attaquer': 'Fight',
