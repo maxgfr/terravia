@@ -90,6 +90,20 @@ const DEFINITIONS = {
       en: 'An all-out rush. The user takes a quarter of the damage dealt.',
     },
   },
+  lutte: {
+    nom: { fr: 'Lutte', en: 'Struggle' },
+    type: 'neutre',
+    categorie: 'physique',
+    puissance: 45,
+    precision: 0,
+    pp: 1,
+    priorite: 0,
+    effet: { kind: 'recul', fraction: 0.25 },
+    description: {
+      fr: 'Dernier recours quand plus aucune attaque n’a de PP. Blesse aussi le lanceur.',
+      en: 'A last resort when no move has PP left. It hurts the user too.',
+    },
+  },
   pisteRapide: {
     nom: { fr: 'Piste Rapide', en: 'Quick Dash' },
     type: 'neutre',
