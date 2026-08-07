@@ -12,7 +12,8 @@
 import type { Direction } from '../world/characterIds.ts';
 import { ITEMS, isKeyItem, type ItemId } from '../data/items.ts';
 import { SPECIES, type SpeciesId } from '../data/species.ts';
-import type { StatKey } from '../data/stats.ts';
+import type { BattleStat, StatKey } from '../data/stats.ts';
+import { ELEMENT_TYPES, type ElementType } from '../data/types.ts';
 import type { Langue } from '../i18n/index.ts';
 import type { DayPhase } from '../world/encounters.ts';
 import {
@@ -54,6 +55,31 @@ export interface Joueur {
   refuge: { regionIndex: number; x: number; y: number };
 }
 
+/**
+ * Un combat interrompu, tel qu'il se retrouve dans la sauvegarde.
+ *
+ * Les créatures de l'équipe n'y figurent pas : le combat travaille directement sur les
+ * exemplaires de `equipe`, leurs PV et leurs PP y sont donc déjà à jour. Ne reste que ce
+ * qui n'existe nulle part ailleurs — l'adversaire, les étages de statistiques, le tour.
+ */
+export interface CombatEnCours {
+  genre: 'sauvage' | 'dresseur';
+  /** Les adversaires avec les PV et les PP du moment. */
+  adversaires: CreatureInstance[];
+  /**
+   * Le dresseur est retrouvé par son identifiant plutôt que recopié : le monde se
+   * rebâtit depuis la seed, et sa fiche avec. On ne quitte pas une région en plein
+   * combat, `joueur.regionIndex` suffit donc à le localiser.
+   */
+  dresseurId: string | null;
+  indexJoueur: number;
+  indexAdverse: number;
+  etagesJoueur: Record<BattleStat, number>;
+  etagesAdverse: Record<BattleStat, number>;
+  tour: number;
+  tentativesFuite: number;
+}
+
 export interface GameState {
   seedText: string;
   langue: Langue;
@@ -66,6 +92,8 @@ export interface GameState {
   horloge: { minutes: number };
   /** Compteur d'identifiants : garantit que deux créatures ne partagent jamais un uid. */
   prochainUid: number;
+  /** Le combat en cours, s'il y en a un. C'est ce qui permet de reprendre en plein échange. */
+  combat: CombatEnCours | null;
 }
 
 const MINUTES_PAR_JOUR = 24 * 60;
@@ -102,6 +130,7 @@ export function creerPartie(seedText: string, langue: Langue, nom = 'Terra'): Ga
     // jour, et découvre le cycle nocturne plus tard.
     horloge: { minutes: 9 * 60 },
     prochainUid: 1,
+    combat: null,
   };
 }
 
@@ -179,6 +208,15 @@ export function deposerEnReserve(state: GameState, index: number): boolean {
   const [retiree] = state.equipe.splice(index, 1);
   if (!retiree) return false;
   state.reserve.push(retiree);
+  return true;
+}
+
+/** Reprend une créature de la réserve. Refuse si l'équipe est déjà au complet. */
+export function retirerDeReserve(state: GameState, index: number): boolean {
+  if (state.equipe.length >= TAILLE_EQUIPE) return false;
+  const [reprise] = state.reserve.splice(index, 1);
+  if (!reprise) return false;
+  state.equipe.push(reprise);
   return true;
 }
 
@@ -308,6 +346,19 @@ export function aBadge(state: GameState, badge: string): boolean {
 
 export function donnerBadge(state: GameState, badge: string): void {
   if (!aBadge(state, badge)) state.progression.badges.push(badge);
+}
+
+/**
+ * Les types dont le badge est acquis, dans l'ordre où ils l'ont été.
+ *
+ * Les badges sont stockés en texte — `badge:flamme` — pour que la sauvegarde reste
+ * lisible et qu'un badge inconnu d'une version future n'empêche pas de charger. La
+ * conversion vers un type se fait donc ici, en écartant ce qui n'en est pas un.
+ */
+export function typesDesBadges(state: GameState): ElementType[] {
+  return state.progression.badges
+    .map((badge) => badge.slice('badge:'.length))
+    .filter((type): type is ElementType => (ELEMENT_TYPES as readonly string[]).includes(type));
 }
 
 /** Répartit des points de dressage sur toute l'équipe encore debout. */

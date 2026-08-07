@@ -130,7 +130,15 @@ export async function lirePressePapiers(): Promise<string | null> {
   }
 }
 
-/** Empreinte courte d'un document : sert à ne pas réécrire une sauvegarde identique. */
+/**
+ * Empreinte d'un document : sert à ne pas réécrire une sauvegarde identique.
+ *
+ * Les horodatages et la somme de contrôle en sont retirés. Ils changent à chaque export
+ * sans que la partie ait bougé d'une case, et les garder rendrait toute empreinte
+ * différente de la précédente — donc inutile.
+ */
 export function empreinte(document_: unknown): string {
-  return jsonCanonique(document_);
+  if (typeof document_ !== 'object' || document_ === null) return jsonCanonique(document_);
+  const { creeLe: _c, majLe: _m, checksum: _s, ...reste } = document_ as Record<string, unknown>;
+  return jsonCanonique(reste);
 }

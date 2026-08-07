@@ -17,7 +17,18 @@ import { fileURLToPath } from 'node:url';
 import { encodePng, type Surface } from './png.ts';
 import { buildFontAtlas } from './font.ts';
 import { buildTileset, TILE_SIZE } from './tiles.ts';
-import { BADGE_HEIGHT, BADGE_WIDTH, buildBadges, buildFrame, buildIcons, FRAME_SLICE, ICON_IDS, ICON_SIZE } from './ui.ts';
+import {
+  BADGE_HEIGHT,
+  BADGE_WIDTH,
+  INSIGNE_SIZE,
+  buildBadges,
+  buildFrame,
+  buildIcons,
+  buildInsignes,
+  FRAME_SLICE,
+  ICON_IDS,
+  ICON_SIZE,
+} from './ui.ts';
 import {
   buildCharacterSheet,
   CHARACTER_DIRECTIONS,
@@ -87,10 +98,12 @@ writeJson('tileset.json', {
 // ── Interface ────────────────────────────────────────────────────────────────
 emit('frame.png', buildFrame());
 emit('badges.png', buildBadges());
+emit('insignes.png', buildInsignes());
 emit('icons.png', buildIcons());
 writeJson('ui.json', {
   frameSlice: FRAME_SLICE,
   badge: { width: BADGE_WIDTH, height: BADGE_HEIGHT, order: ELEMENT_TYPES },
+  insigne: { size: INSIGNE_SIZE, order: ELEMENT_TYPES },
   icons: { size: ICON_SIZE, order: ICON_IDS },
 });
 

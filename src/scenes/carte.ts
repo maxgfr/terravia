@@ -13,7 +13,6 @@
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/viewport.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import { objetRamasse, regionVisitee } from '../game/state.ts';
-import { NOMBRE_REGIONS } from '../world/worldgen.ts';
 import { lireTuile } from '../world/region.ts';
 import type { TileId } from '../world/tiles.ts';
 import { COULEURS } from '../ui/draw.ts';
@@ -70,6 +69,9 @@ export class SceneCarte implements Scene {
   dessiner(jeu: Jeu): void {
     const peintre = jeu.peintre;
     const region = jeu.monde.region(jeu.state.joueur.regionIndex);
+    // La longueur du parcours dépend désormais de la seed : elle se lit sur le monde
+    // courant, elle n'est plus une constante du jeu.
+    const regions = jeu.monde.plans.length;
     peintre.remplir(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, COULEURS.fond);
     peintre.panneau(6, 6, VIRTUAL_WIDTH - 12, VIRTUAL_HEIGHT - 12);
 
@@ -77,7 +79,7 @@ export class SceneCarte implements Scene {
     peintre.texteDroite(
       jeu.t('carte.progression', {
         index: jeu.state.joueur.regionIndex + 1,
-        total: NOMBRE_REGIONS,
+        total: regions,
       }),
       VIRTUAL_WIDTH - 16,
       12,
@@ -124,13 +126,14 @@ export class SceneCarte implements Scene {
 
     // ── Bande des régions du monde ──────────────────────────────────────────
     const bandeY = originY + hauteur + 8;
-    const pas = Math.floor((VIRTUAL_WIDTH - 40) / NOMBRE_REGIONS);
-    const bandeX = Math.round((VIRTUAL_WIDTH - pas * NOMBRE_REGIONS) / 2);
+    const pas = Math.floor((VIRTUAL_WIDTH - 40) / regions);
+    const bandeX = Math.round((VIRTUAL_WIDTH - pas * regions) / 2);
 
-    for (let index = 0; index < NOMBRE_REGIONS; index++) {
+    for (let index = 0; index < regions; index++) {
       const x = bandeX + index * pas;
       const visitee = regionVisitee(jeu.state, index);
       const courante = index === jeu.state.joueur.regionIndex;
+      const plan = jeu.monde.plans[index]!;
       peintre.remplir(
         x + 2,
         bandeY,
@@ -138,6 +141,11 @@ export class SceneCarte implements Scene {
         8,
         courante ? COULEURS.selection : visitee ? COULEURS.pvHaut : COULEURS.pvFond,
       );
+      // Les arènes se repèrent sur la bande : c'est ce qui donne au joueur une idée du
+      // chemin qu'il lui reste, maintenant que le parcours change à chaque seed.
+      if (plan.role === 'arene' || plan.role === 'sanctuaire') {
+        peintre.remplir(x + 2, bandeY - 3, pas - 4, 2, COULEURS.texteAccent);
+      }
       if (index > 0) peintre.remplir(x - 2, bandeY + 3, 4, 2, COULEURS.texteAttenue);
     }
 

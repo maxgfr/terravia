@@ -15,7 +15,7 @@ import { hashString } from '../core/rng.ts';
 import type { ItemId } from '../data/items.ts';
 import type { MoveId } from '../data/moves.ts';
 import type { SpeciesId } from '../data/species.ts';
-import type { StatBlock, StatusId } from '../data/stats.ts';
+import type { BattleStat, StatBlock, StatusId } from '../data/stats.ts';
 import type { TalentId } from '../data/talents.ts';
 import type { Langue } from '../i18n/index.ts';
 import type { Direction } from '../world/characterIds.ts';
@@ -26,8 +26,10 @@ export const FORMAT_CREATURE = 'terravia-creature';
 /**
  * Version du format. À incrémenter dès qu'un champ change de sens, en ajoutant la
  * migration correspondante — c'est ce qui évite de casser les parties existantes.
+ *
+ * v2 : ajout du bloc `combat`, qui permet de reprendre une partie fermée en plein échange.
  */
-export const VERSION_ACTUELLE = 1;
+export const VERSION_ACTUELLE = 2;
 
 export interface CreatureEnregistree {
   readonly uid: string;
@@ -43,6 +45,25 @@ export interface CreatureEnregistree {
   readonly statut: StatusId | null;
   readonly sommeil: number;
   readonly origine: string;
+}
+
+/**
+ * Le combat interrompu, dans le document.
+ *
+ * Les adversaires empruntent la même forme que les membres de l'équipe : un adversaire
+ * n'est rien d'autre qu'une créature, et le jour où l'on capturera le nôtre en plein
+ * combat, aucune conversion ne sera à écrire.
+ */
+export interface CombatEnregistre {
+  readonly genre: 'sauvage' | 'dresseur';
+  readonly adversaires: readonly CreatureEnregistree[];
+  readonly dresseurId: string | null;
+  readonly indexJoueur: number;
+  readonly indexAdverse: number;
+  readonly etagesJoueur: Readonly<Record<BattleStat, number>>;
+  readonly etagesAdverse: Readonly<Record<BattleStat, number>>;
+  readonly tour: number;
+  readonly tentativesFuite: number;
 }
 
 export interface SaveFile {
@@ -77,6 +98,8 @@ export interface SaveFile {
   };
   readonly horloge: { readonly minutes: number };
   readonly prochainUid: number;
+  /** Absent d'une sauvegarde v1, et `null` quand la partie n'est pas en combat. */
+  readonly combat: CombatEnregistre | null;
   readonly checksum: string;
 }
 

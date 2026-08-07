@@ -30,6 +30,13 @@
       "sha256": "ae5cae59c13a1681"
     },
     {
+      "file": "insignes.png",
+      "width": 12,
+      "height": 144,
+      "bytes": 1354,
+      "sha256": "d921f93d89bc2fc2"
+    },
+    {
       "file": "icons.png",
       "width": 224,
       "height": 16,
@@ -46,9 +53,9 @@
     {
       "file": "creatures.png",
       "width": 128,
-      "height": 1920,
-      "bytes": 35276,
-      "sha256": "e780a5032b94b3bc"
+      "height": 2560,
+      "bytes": 47703,
+      "sha256": "4228b04990ebb743"
     }
   ]
 }

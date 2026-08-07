@@ -307,7 +307,19 @@ export class Peintre {
     });
   }
 
+  /** Écusson d'arène, aux couleurs de la spécialité du champion vaincu. */
+  insigne(type: ElementType, x: number, y: number): void {
+    const { image, size, order } = this.assets.insignes;
+    const ligne = order.indexOf(type);
+    if (ligne < 0) return;
+    this.ctx.drawImage(image, 0, ligne * size, size, size, Math.round(x), Math.round(y), size, size);
+  }
+
   get largeurPlaque(): number {
     return this.assets.plaques.width;
+  }
+
+  get tailleInsigne(): number {
+    return this.assets.insignes.size;
   }
 }

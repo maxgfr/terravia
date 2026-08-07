@@ -27,14 +27,47 @@ function visibleA(species: SpeciesId, phase: DayPhase): boolean {
   return creneau === phase;
 }
 
+/**
+ * Puissance maximale admise dans une région, d'après le niveau qu'on y croise.
+ *
+ * Sans ce plafond, une évolution finale pouvait surgir dans la toute première région :
+ * bridée au niveau 4, certes, mais avec ses statistiques de bout de lignée. Un starter
+ * y perdait un combat sur deux sans avoir rien fait de mal. Le monde montre désormais
+ * des créatures à la mesure de l'endroit où l'on se trouve.
+ */
+function plafondPuissance(niveauMax: number): number {
+  return 270 + niveauMax * 9;
+}
+
+export interface OptionsTable {
+  /** Plafonne la puissance des espèces proposées. Absent, la table n'est pas bridée. */
+  readonly niveauMax?: number;
+  /** Ouvre la table aux créatures uniques. Réservé au sanctuaire. */
+  readonly uniques?: boolean;
+}
+
 /** Les espèces susceptibles d'apparaître dans un biome à une phase donnée. */
-export function tableRencontre(biome: Biome, phase: DayPhase): SpeciesId[] {
-  return SPECIES_IDS.filter(
+export function tableRencontre(biome: Biome, phase: DayPhase, options: OptionsTable = {}): SpeciesId[] {
+  const habitantes = SPECIES_IDS.filter(
     (id) =>
-      SPECIES[id].tauxCapture > SEUIL_UNIQUE &&
       SPECIES[id].habitats.includes(biome) &&
-      visibleA(id, phase),
+      visibleA(id, phase) &&
+      (options.uniques
+        ? SPECIES[id].tauxCapture <= SEUIL_UNIQUE
+        : SPECIES[id].tauxCapture > SEUIL_UNIQUE),
   );
+
+  if (options.niveauMax === undefined || options.uniques) return habitantes;
+
+  const plafond = plafondPuissance(options.niveauMax);
+  const admises = habitantes.filter((id) => baseStatTotal(SPECIES[id]) <= plafond);
+  // Un biome dont toutes les espèces dépassent le plafond ne doit pas devenir désert :
+  // on garde alors la plus modeste, faute de mieux.
+  if (admises.length > 0) return admises;
+  return habitantes
+    .slice()
+    .sort((a, b) => baseStatTotal(SPECIES[a]) - baseStatTotal(SPECIES[b]))
+    .slice(0, 1);
 }
 
 /**
@@ -64,8 +97,9 @@ export function tirerRencontre(
   biome: Biome,
   phase: DayPhase,
   niveaux: { readonly min: number; readonly max: number },
+  options: OptionsTable = {},
 ): Rencontre | null {
-  const table = tableRencontre(biome, phase);
+  const table = tableRencontre(biome, phase, { niveauMax: niveaux.max, ...options });
   if (table.length === 0) return null;
 
   const species = rng.weighted(table, poids);

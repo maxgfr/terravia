@@ -16,7 +16,7 @@ import { creerPartie } from './game/state.ts';
 import { installerDepotFichier, lireLanguePreferee } from './save/storage.ts';
 import { SceneTitre } from './scenes/titre.ts';
 import { SceneParametres } from './scenes/parametres.ts';
-import { traiterImport } from './scenes/menu.ts';
+import { traiterImport } from './scenes/partie.ts';
 import { Peintre } from './ui/draw.ts';
 import { langueParDefaut } from './i18n/preference.ts';
 
@@ -76,9 +76,17 @@ async function demarrer(): Promise<void> {
 
   // Une page de jeu ne doit pas tourner quand elle n'est pas visible : sur mobile,
   // c'est de la batterie dépensée pour rien.
+  //
+  // C'est aussi le moment le plus sûr pour enregistrer. Sur iOS, quitter le navigateur
+  // ne déclenche souvent que cet événement-ci ; s'en remettre à `pagehide` seul, c'est
+  // perdre la partie de qui bascule d'application.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) boucle.stop();
-    else boucle.start();
+    if (document.hidden) {
+      jeu.sauvegarderLocalement();
+      boucle.stop();
+    } else {
+      boucle.start();
+    }
   });
 
   // Dernier filet : la partie est enregistrée si l'onglet se ferme.

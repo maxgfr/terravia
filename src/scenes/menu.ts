@@ -1,5 +1,5 @@
 /**
- * Menu de pause : équipe, sac, Terradex, sauvegarde.
+ * Menu de pause : équipe, réserve, sac, Terradex, sauvegarde.
  *
  * Il se pose **au-dessus** du monde sans l'effacer — la scène n'est pas opaque, donc
  * l'overworld reste visible derrière un voile. Le joueur ne perd jamais de vue où il se
@@ -10,27 +10,38 @@ import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/viewport.ts';
 import { ITEMS } from '../data/items.ts';
 import { MOVES } from '../data/moves.ts';
 import { SPECIES, SPECIES_IDS } from '../data/species.ts';
-import { experienceForLevel } from '../data/stats.ts';
+import { STAT_KEYS, experienceForLevel } from '../data/stats.ts';
 import { TALENTS } from '../data/talents.ts';
-import { pvMax, type CreatureInstance } from '../game/creature.ts';
+import { evoluer, pvMax, type CreatureInstance } from '../game/creature.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import {
+  TAILLE_EQUIPE,
+  deposerEnReserve,
+  quantite,
+  retirerObjet,
+  echangerAvecReserve,
+  retirerDeReserve,
   sacTrie,
   tailleTerradex,
   tempsJoue,
+  typesDesBadges,
   utiliserObjetSur,
 } from '../game/state.ts';
-import { exporterCreature, exporterPartie, nomFichier, chargerDepuisTexte, chargerCreatureDepuisTexte, importerCreature } from '../save/serialize.ts';
+import { exporterCreature, exporterPartie, nomFichier } from '../save/serialize.ts';
 import { choisirFichier, telecharger } from '../save/storage.ts';
-import { accueillirCreature, prochainIdentifiant } from '../game/state.ts';
 import { COULEURS } from '../ui/draw.ts';
 import { SceneCarte } from './carte.ts';
 import { SceneParametres } from './parametres.ts';
+import { traiterImport } from './partie.ts';
 
-type Onglet = 'racine' | 'equipe' | 'fiche' | 'sac' | 'terradex' | 'sauvegarde';
+/** Lignes de réserve affichées d'un coup dans la colonne de droite. */
+const LIGNES_RESERVE = 8;
+
+type Onglet = 'racine' | 'equipe' | 'fiche' | 'reserve' | 'sac' | 'terradex' | 'sauvegarde';
 
 const ENTREES_RACINE = [
   'menu.equipe',
+  'menu.reserve',
   'menu.sac',
   'menu.carte',
   'menu.terradex',
@@ -39,6 +50,7 @@ const ENTREES_RACINE = [
   'menu.fermer',
 ] as const;
 const ENTREES_SAUVEGARDE = [
+  'sauvegarde.maintenant',
   'sauvegarde.exporter',
   'sauvegarde.importer',
   'sauvegarde.exporterCreature',
@@ -52,6 +64,9 @@ export class SceneMenu implements Scene {
   private selection = 0;
   private fiche: CreatureInstance | null = null;
   private defilement = 0;
+  /** Colonne active de l'écran de réserve, et curseur de la colonne de droite. */
+  private cote: 'equipe' | 'reserve' = 'equipe';
+  private selectionReserve = 0;
 
   mettreAJour(jeu: Jeu, step: number): void {
     if (jeu.dialogue.actif) {
@@ -69,6 +84,9 @@ export class SceneMenu implements Scene {
       case 'fiche':
         if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('valider')) this.aller('equipe');
         break;
+      case 'reserve':
+        this.reserve(jeu);
+        break;
       case 'sac':
         this.sac(jeu);
         break;
@@ -85,6 +103,8 @@ export class SceneMenu implements Scene {
     this.onglet = onglet;
     this.selection = 0;
     this.defilement = 0;
+    this.cote = 'equipe';
+    this.selectionReserve = 0;
   }
 
   private naviguer(jeu: Jeu, nombre: number): void {
@@ -105,10 +125,19 @@ export class SceneMenu implements Scene {
       case 'menu.equipe':
         this.aller('equipe');
         break;
+      case 'menu.reserve':
+        this.aller('reserve');
+        break;
       case 'menu.sac':
         this.aller('sac');
         break;
       case 'menu.carte':
+        // La carte est un objet, pas un droit acquis : elle attend au bourg. Sans elle,
+        // l'entrée du menu ne menait nulle part — et l'objet ne servait à rien.
+        if (quantite(jeu.state, 'carte') === 0) {
+          jeu.dialogue.dire(jeu.t('menu.sansCarte'));
+          break;
+        }
         jeu.pousser(new SceneCarte());
         break;
       case 'menu.terradex':
@@ -137,6 +166,61 @@ export class SceneMenu implements Scene {
     }
   }
 
+  /**
+   * Réserve : l'équipe à gauche, ce qui dort à droite.
+   *
+   * Un seul curseur actif, et « valider » fait toujours traverser la créature visée.
+   * À droite, quand l'équipe est pleine, elle prend la place de celle qui est
+   * surlignée à gauche — les deux curseurs restent donc dessinés en permanence, sans
+   * quoi l'échange partirait vers une cible invisible.
+   */
+  private reserve(jeu: Jeu): void {
+    const equipe = jeu.state.equipe;
+    const reserve = jeu.state.reserve;
+
+    if (jeu.entrees.pressee('annuler')) {
+      this.aller('racine');
+      return;
+    }
+    if (jeu.entrees.pressee('est') && reserve.length > 0) this.cote = 'reserve';
+    if (jeu.entrees.pressee('ouest')) this.cote = 'equipe';
+
+    if (this.cote === 'equipe') {
+      this.naviguer(jeu, equipe.length);
+      if (!jeu.entrees.pressee('valider')) return;
+      if (!deposerEnReserve(jeu.state, this.selection)) {
+        jeu.dialogue.dire(jeu.t('menu.equipeMinimale'));
+        return;
+      }
+      this.selection = Math.min(this.selection, equipe.length - 1);
+      jeu.sauvegarderLocalement();
+      return;
+    }
+
+    if (reserve.length === 0) {
+      this.cote = 'equipe';
+      return;
+    }
+    if (jeu.entrees.pressee('sud')) this.selectionReserve = (this.selectionReserve + 1) % reserve.length;
+    if (jeu.entrees.pressee('nord')) {
+      this.selectionReserve = (this.selectionReserve - 1 + reserve.length) % reserve.length;
+    }
+    this.defilement = Math.max(0, Math.min(this.selectionReserve - LIGNES_RESERVE + 1, reserve.length - LIGNES_RESERVE));
+    if (!jeu.entrees.pressee('valider')) return;
+
+    const nom = jeu.nomCreature(reserve[this.selectionReserve]!);
+    if (equipe.length < TAILLE_EQUIPE) {
+      retirerDeReserve(jeu.state, this.selectionReserve);
+      jeu.dialogue.dire(jeu.t('menu.rejointEquipe', { nom }));
+    } else {
+      echangerAvecReserve(jeu.state, this.selection, this.selectionReserve);
+      jeu.dialogue.dire(jeu.t('menu.echange', { nom }));
+    }
+    this.selectionReserve = Math.min(this.selectionReserve, Math.max(0, jeu.state.reserve.length - 1));
+    if (jeu.state.reserve.length === 0) this.cote = 'equipe';
+    jeu.sauvegarderLocalement();
+  }
+
   private sac(jeu: Jeu): void {
     const objets = sacTrie(jeu.state);
     this.naviguer(jeu, objets.length);
@@ -149,6 +233,10 @@ export class SceneMenu implements Scene {
     const choisi = objets[this.selection];
     if (!choisi) return;
     const effet = ITEMS[choisi.item].effet;
+    if (effet.kind === 'evolution') {
+      this.utiliserPierre(jeu, choisi.item);
+      return;
+    }
     if (effet.kind !== 'soin' && effet.kind !== 'guerison') return;
 
     // On applique sur la première créature que l'objet peut réellement aider : proposer
@@ -167,6 +255,42 @@ export class SceneMenu implements Scene {
     }
   }
 
+  /**
+   * La Pierre d'Éveil, sur une créature choisie.
+   *
+   * Contrairement à une potion — qu'on applique sur la première créature qu'elle peut
+   * aider — une évolution est un choix qu'on ne défait pas. On la demande donc, au lieu
+   * de la deviner.
+   */
+  private utiliserPierre(jeu: Jeu, item: keyof typeof ITEMS): void {
+    const eligibles = jeu.state.equipe.filter((membre) => SPECIES[membre.speciesId].evolution);
+    if (eligibles.length === 0) {
+      jeu.dialogue.dire(jeu.t('menu.aucuneEvolution'));
+      return;
+    }
+
+    void jeu.dialogue
+      .demander(jeu.t('menu.pierreQui'), [
+        ...eligibles.map((membre) => jeu.nomCreature(membre)),
+        jeu.t('menu.retour'),
+      ])
+      .then((choix) => {
+        const cible = eligibles[choix];
+        if (!cible) return;
+        const evolution = SPECIES[cible.speciesId].evolution;
+        if (!evolution) return;
+
+        const index = jeu.state.equipe.indexOf(cible);
+        const avant = SPECIES[cible.speciesId].nom[jeu.langue];
+        jeu.state.equipe[index] = evoluer(cible, evolution.vers);
+        retirerObjet(jeu.state, item);
+        jeu.dialogue.dire(
+          jeu.t('combat.evolue', { nom: avant, evolution: jeu.nomEspece(evolution.vers) }),
+        );
+        jeu.sauvegarderLocalement();
+      });
+  }
+
   private terradex(jeu: Jeu): void {
     this.naviguer(jeu, SPECIES_IDS.length);
     this.defilement = Math.max(0, Math.min(this.selection - 6, SPECIES_IDS.length - 13));
@@ -182,6 +306,13 @@ export class SceneMenu implements Scene {
     if (!jeu.entrees.pressee('valider')) return;
 
     switch (ENTREES_SAUVEGARDE[this.selection]) {
+      case 'sauvegarde.maintenant':
+        // L'écriture est automatique et muette. Une confirmation explicite est le seul
+        // moyen pour le joueur de savoir que sa partie est à l'abri avant de fermer.
+        jeu.dialogue.dire(
+          jeu.sauvegarderLocalement() ? jeu.t('sauvegarde.enregistree') : jeu.t('sauvegarde.impossible'),
+        );
+        break;
       case 'sauvegarde.exporter': {
         const horodatage = new Date().toISOString();
         telecharger(exporterPartie(jeu.state, horodatage), nomFichier(jeu.state, horodatage));
@@ -228,6 +359,9 @@ export class SceneMenu implements Scene {
       case 'fiche':
         this.dessinerFiche(jeu);
         break;
+      case 'reserve':
+        this.dessinerReserve(jeu);
+        break;
       case 'sac':
         this.dessinerSac(jeu);
         break;
@@ -257,6 +391,15 @@ export class SceneMenu implements Scene {
     ENTREES_RACINE.forEach((cle, index) => {
       this.ligne(jeu, jeu.t(cle), 34 + index * 14, index === this.selection);
     });
+
+    // Les insignes des arènes remportées : c'est le seul endroit où l'on peut voir
+    // d'un coup d'œil où l'on en est de la progression.
+    const insignes = typesDesBadges(jeu.state);
+    const taille = jeu.peintre.tailleInsigne;
+    insignes.forEach((type, index) => {
+      jeu.peintre.insigne(type, VIRTUAL_WIDTH - 26 - index * (taille + 2), VIRTUAL_HEIGHT - 28);
+    });
+
     jeu.peintre.texte(
       `${jeu.t('boutique.pieces', { pieces: jeu.state.joueur.pieces })} · ${tempsJoue(jeu.state)}`,
       18,
@@ -313,16 +456,97 @@ export class SceneMenu implements Scene {
     peintre.texte(jeu.t('fiche.xp'), 16, 102);
     peintre.barreXp(40, 104, 110, haut > bas ? (creature.xp - bas) / (haut - bas) : 0);
 
-    peintre.texte(jeu.t('fiche.attaques'), 16, 118, { couleur: COULEURS.texteAccent });
+    // Gènes et dressage : tout le système de statistiques repose dessus, et rien ne les
+    // montrait. Deux Mulotin de niveau 20 ne sont pas interchangeables — encore
+    // faut-il pouvoir le constater.
+    const somme = (bloc: Record<string, number>): number =>
+      STAT_KEYS.reduce((total, stat) => total + bloc[stat]!, 0);
+    peintre.texte(
+      `${jeu.t('fiche.genes')} ${somme(creature.genes)}  ·  ${jeu.t('fiche.dressage')} ${somme(creature.dressage)}`,
+      16,
+      112,
+      { couleur: COULEURS.texteAttenue },
+    );
+
+    peintre.texte(jeu.t('fiche.attaques'), 16, 126, { couleur: COULEURS.texteAccent });
     creature.moves.forEach((slot, index) => {
       const move = MOVES[slot.id];
-      const y = 132 + index * 12;
+      const y = 138 + index * 12;
       peintre.texte(move.nom[jeu.langue], 20, y);
+      // Puissance et précision : sans elles, choisir une attaque à oublier se faisait
+      // au nom, donc au hasard.
+      peintre.texte(
+        `${jeu.t('fiche.puissance')} ${move.puissance || '—'}  ${jeu.t('fiche.precision')} ${
+          move.precision === 0 ? jeu.t('fiche.infaillible') : move.precision
+        }`,
+        112,
+        y,
+        { couleur: COULEURS.texteAttenue },
+      );
       peintre.texteDroite(`${slot.pp}/${move.pp}`, VIRTUAL_WIDTH - 20, y, { couleur: COULEURS.texteAttenue });
-      peintre.plaqueType(move.type, jeu.nomType(move.type), 150, y - 1);
     });
 
     peintre.texte(jeu.t('aide.fermer'), 18, VIRTUAL_HEIGHT - 22, { couleur: COULEURS.texteAttenue });
+  }
+
+  private dessinerReserve(jeu: Jeu): void {
+    const peintre = jeu.peintre;
+    const reserve = jeu.state.reserve;
+    this.cadre(jeu, jeu.t('menu.reserve'));
+
+    const colonneDroite = Math.round(VIRTUAL_WIDTH / 2) + 4;
+    peintre.texte(jeu.t('menu.equipe'), 18, 28, { couleur: COULEURS.texteAttenue });
+    peintre.texte(
+      `${jeu.t('menu.reserve')} ${reserve.length}`,
+      colonneDroite,
+      28,
+      { couleur: COULEURS.texteAttenue },
+    );
+
+    jeu.state.equipe.forEach((membre, index) => {
+      const choisi = this.cote === 'equipe' && index === this.selection;
+      // Le curseur de gauche reste marqué même quand la main est à droite : c'est lui
+      // qui désigne la créature qu'un échange remplacera.
+      const cible = this.cote === 'reserve' && index === this.selection;
+      const y = 42 + index * 13;
+      if (choisi || cible) {
+        peintre.texte('▶', 18, y, { couleur: choisi ? COULEURS.selection : COULEURS.texteAttenue });
+      }
+      peintre.texte(this.ligneCreature(jeu, membre), 28, y, {
+        couleur: choisi ? COULEURS.texteAccent : COULEURS.texte,
+      });
+    });
+
+    if (reserve.length === 0) {
+      peintre.texte(jeu.t('menu.reserveVide'), colonneDroite, 42, { couleur: COULEURS.texteAttenue });
+    } else {
+      reserve.slice(this.defilement, this.defilement + LIGNES_RESERVE).forEach((membre, ligne) => {
+        const index = this.defilement + ligne;
+        const choisi = this.cote === 'reserve' && index === this.selectionReserve;
+        const y = 42 + ligne * 13;
+        if (choisi) peintre.texte('▶', colonneDroite - 10, y, { couleur: COULEURS.selection });
+        peintre.texte(this.ligneCreature(jeu, membre), colonneDroite, y, {
+          couleur: choisi ? COULEURS.texteAccent : COULEURS.texte,
+        });
+      });
+    }
+
+    // L'aide dit ce que « valider » fera *ici*, pas ce qu'il fait en général : à droite,
+    // l'action change selon qu'il reste ou non une place dans l'équipe.
+    const aide =
+      this.cote === 'equipe'
+        ? jeu.t('menu.deposer')
+        : jeu.state.equipe.length < TAILLE_EQUIPE
+          ? jeu.t('menu.reprendre')
+          : jeu.t('menu.echanger');
+    peintre.texte(aide, 18, VIRTUAL_HEIGHT - 24, { couleur: COULEURS.texteAttenue });
+  }
+
+  /** Une créature en une ligne : nom tronqué, niveau, points de vie. */
+  private ligneCreature(jeu: Jeu, membre: CreatureInstance): string {
+    const nom = jeu.nomCreature(membre);
+    const court = nom.length > 9 ? `${nom.slice(0, 8)}…` : nom;
+    return `${court} N.${membre.niveau} ${membre.pv}/${pvMax(membre)}`;
   }
 
   private dessinerSac(jeu: Jeu): void {
@@ -386,48 +610,4 @@ function utiliserObjetSurEssai(jeu: Jeu, item: keyof typeof ITEMS, cible: Creatu
   }
   void jeu;
   return false;
-}
-
-/**
- * Traite un fichier déposé ou choisi : partie complète ou créature seule.
- * Un import de partie passe toujours par une confirmation — on n'écrase jamais en silence.
- */
-export function traiterImport(jeu: Jeu, contenu: string): void {
-  const creature = chargerCreatureDepuisTexte(contenu);
-  if (creature.ok) {
-    const importee = importerCreature(creature.valeur, prochainIdentifiant(jeu.state));
-    accueillirCreature(jeu.state, importee);
-    jeu.sauvegarderLocalement();
-    jeu.dialogue.dire(jeu.t('sauvegarde.creatureImportee', { nom: jeu.nomEspece(importee.speciesId) }));
-    return;
-  }
-
-  const partie = chargerDepuisTexte(contenu);
-  if (!partie.ok) {
-    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: partie.raison }));
-    return;
-  }
-
-  const resume = partie.valeur.resume;
-  jeu.dialogue.dire(
-    jeu.t('sauvegarde.resume', {
-      seed: resume.seed,
-      region: String(resume.joueur.regionIndex + 1),
-      creatures: resume.equipe.length + resume.reserve.length,
-      temps: `${Math.floor(resume.joueur.tempsJeuMs / 60000)} min`,
-    }),
-  );
-  for (const avertissement of partie.valeur.avertissements) {
-    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: avertissement }));
-  }
-
-  void jeu.dialogue
-    .demander(jeu.t('sauvegarde.confirmerImport'), [jeu.t('depart.oui'), jeu.t('depart.non')])
-    .then((choix) => {
-      if (choix !== 0) return;
-      jeu.chargerPartie(partie.valeur.state);
-      jeu.sauvegarderLocalement();
-      // On repart de l'overworld : la scène courante décrivait l'ancienne partie.
-      window.location.reload();
-    });
 }

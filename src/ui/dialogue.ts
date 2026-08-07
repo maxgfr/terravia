@@ -30,6 +30,8 @@ export class BoiteDialogue {
   private lignes: string[] = [];
   private reveles = 0;
   private question: Question | null = null;
+  /** Question posée alors qu'un message s'affichait : elle s'ouvre quand la file se vide. */
+  private enAttente: Question | null = null;
   private selection = 0;
   private surFin: (() => void) | null = null;
 
@@ -49,15 +51,28 @@ export class BoiteDialogue {
     if (this.courant === null) this.avancer();
   }
 
-  /** Pose une question et rend l'index choisi. */
+  /**
+   * Pose une question et rend l'index choisi.
+   *
+   * Si un message est en cours, la question attend son tour au lieu de l'écraser. Sans
+   * cela, un `dire()` suivi d'un `demander()` effaçait le message et toute la file
+   * derrière lui — c'est ce qui faisait disparaître le résumé d'une sauvegarde importée
+   * sous sa propre demande de confirmation.
+   */
   demander(intitule: string, options: readonly string[]): Promise<number> {
     return new Promise((resoudre) => {
-      this.question = { intitule, options, resoudre };
-      this.selection = 0;
-      this.lignes = this.peintre.decouper(intitule, VIRTUAL_WIDTH - MARGE * 4);
-      this.reveles = 0;
-      this.courant = intitule;
+      const question: Question = { intitule, options, resoudre };
+      if (this.actif) this.enAttente = question;
+      else this.ouvrir(question);
     });
+  }
+
+  private ouvrir(question: Question): void {
+    this.question = question;
+    this.selection = 0;
+    this.lignes = this.peintre.decouper(question.intitule, VIRTUAL_WIDTH - MARGE * 4);
+    this.reveles = 0;
+    this.courant = question.intitule;
   }
 
   /** Rappel déclenché quand la file se vide. */
@@ -70,12 +85,19 @@ export class BoiteDialogue {
     this.file = [];
     this.courant = null;
     this.question = null;
+    this.enAttente = null;
     this.surFin = null;
   }
 
   private avancer(): void {
     const suivant = this.file.shift();
     if (suivant === undefined) {
+      const enAttente = this.enAttente;
+      if (enAttente) {
+        this.enAttente = null;
+        this.ouvrir(enAttente);
+        return;
+      }
       this.courant = null;
       const fin = this.surFin;
       this.surFin = null;
@@ -110,12 +132,9 @@ export class BoiteDialogue {
         this.question = null;
         this.courant = null;
         resoudre(choix);
-        if (this.file.length > 0) this.avancer();
-        else {
-          const fin = this.surFin;
-          this.surFin = null;
-          fin?.();
-        }
+        // `avancer` couvre les trois suites possibles : message suivant, question mise
+        // en attente, ou file vide qui déclenche le rappel de fin.
+        this.avancer();
       }
       return;
     }

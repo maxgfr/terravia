@@ -65,8 +65,15 @@ const CHART: Record<ElementType, Efficacy> = {
   },
   foudre: { onde: 2, vent: 2, metal: 2, foudre: 0.5, sylve: 0.5, roche: 0 },
   givre: { sylve: 2, vent: 2, roche: 2, givre: 0.5, flamme: 0.5, onde: 0.5, metal: 0.5 },
-  roche: { flamme: 2, givre: 2, vent: 2, foudre: 2, roche: 0.5, onde: 0.5, sylve: 0.5, metal: 0.5 },
-  metal: { givre: 2, roche: 2, lumiere: 2, neutre: 2, metal: 0.5, flamme: 0.5, foudre: 0.5, onde: 0.5 },
+  // Roche et métal se départagent dans un seul sens : un éboulement écrase une armure,
+  // une lame n'entame pas un rocher. Le métal ne résiste donc plus à la roche, et n'est
+  // plus efficace contre elle.
+  roche: { flamme: 2, givre: 2, vent: 2, foudre: 2, roche: 0.5, onde: 0.5, sylve: 0.5 },
+  // Le métal protège, il ne tranche pas. Il cumulait la meilleure défense du jeu — neuf
+  // résistances sur douze — avec une offense de premier rang, sans aucun contre-jeu : une
+  // arène de ce type se perdait quelle que soit l'équipe alignée. Il perd donc ses coups
+  // les plus larges et garde ce qui cède vraiment sous une lame : la glace et l'ordinaire.
+  metal: { givre: 2, neutre: 2, metal: 0.5, flamme: 0.5, foudre: 0.5, onde: 0.5 },
   vent: { sylve: 2, toxine: 2, ombre: 2, vent: 0.5, foudre: 0.5, roche: 0.5, metal: 0.5 },
   ombre: { lumiere: 2, toxine: 2, ombre: 0.5, metal: 0.5, neutre: 0 },
   lumiere: { ombre: 2, toxine: 2, lumiere: 0.5, metal: 0.5, sylve: 0.5 },

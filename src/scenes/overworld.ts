@@ -12,6 +12,7 @@ import { rngFor } from '../core/rng.ts';
 import { creerCreature } from '../game/creature.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import {
+  aBadge,
   aDrapeau,
   acheter,
   ajouterObjet,
@@ -23,6 +24,7 @@ import {
   objetRamasse,
   phaseDuJour,
   poserDrapeau,
+  quantite,
   prochainIdentifiant,
   soignerEquipe,
 } from '../game/state.ts';
@@ -31,13 +33,19 @@ import { DIRECTION_VECTORS, type Direction } from '../world/characterIds.ts';
 import { TAUX_RENCONTRE, tirerRencontre } from '../world/encounters.ts';
 import type { Dresseur, Entite } from '../world/entities.ts';
 import { lireTuile, type Region } from '../world/region.ts';
+import { badgeDe } from '../world/worldgen.ts';
 import { TILES } from '../world/tiles.ts';
 import { COULEURS } from '../ui/draw.ts';
+import type { CleTexte } from '../i18n/index.ts';
 import { SceneCombat } from './combat.ts';
+import { SceneFin } from './fin.ts';
 import { SceneMenu } from './menu.ts';
 
 /** Durée d'un pas, en secondes. Plus court paraît nerveux, plus long paraît pâteux. */
 const DUREE_PAS = 0.15;
+
+/** Chance qu'un lancer de canne accroche quelque chose. */
+const TAUX_PECHE = 0.7;
 
 /** Voiles appliqués au monde selon l'heure. */
 const VOILES: Record<string, string | null> = {
@@ -65,7 +73,6 @@ export class SceneOverworld implements Scene {
   private trameMarche = 0;
   private distanceParcourue = 0;
   private annonce: { texte: string; restant: number } | null = null;
-  private transitionEnCours = false;
 
   entrer(jeu: Jeu): void {
     marquerRegionVisitee(jeu.state, jeu.state.joueur.regionIndex);
@@ -87,6 +94,22 @@ export class SceneOverworld implements Scene {
     jeu.dialogue.puis(() => jeu.sauvegarderLocalement());
   }
 
+  /**
+   * Ouvre l'écran de fin au retour du dernier champion.
+   *
+   * Le drapeau est posé en combat, mais l'écran s'ouvre ici : on veut qu'il apparaisse
+   * une fois le combat refermé, sur le monde. Le second drapeau évite qu'il revienne à
+   * chaque trame — et à chaque retour au monde pour le reste de la partie.
+   */
+  private celebrerLaVictoire(jeu: Jeu): boolean {
+    if (!aDrapeau(jeu.state, 'victoire') || aDrapeau(jeu.state, 'finVue')) return false;
+    if (jeu.dialogue.actif) return false;
+    poserDrapeau(jeu.state, 'finVue');
+    jeu.sauvegarderLocalement();
+    jeu.pousser(new SceneFin());
+    return true;
+  }
+
   private region(jeu: Jeu): Region {
     return jeu.monde.region(jeu.state.joueur.regionIndex);
   }
@@ -100,6 +123,11 @@ export class SceneOverworld implements Scene {
 
   mettreAJour(jeu: Jeu, step: number): void {
     avancerTemps(jeu.state, step * 1000);
+    if (this.celebrerLaVictoire(jeu)) return;
+    // Les autres points de sauvegarde sont événementiels — région franchie, objet
+    // ramassé, combat fini. Traverser une grande région n'en déclenche aucun : sans
+    // cette écriture régulière, la position et l'horloge ne vivent qu'en mémoire.
+    jeu.sauvegarderSiModifie(step * 1000);
 
     if (this.annonce) {
       this.annonce.restant -= step;
@@ -202,6 +230,20 @@ export class SceneOverworld implements Scene {
 
     const sortie = region.sorties.find((candidate) => candidate.x === joueur.x && candidate.y === joueur.y);
     if (sortie) {
+      // Une arène se franchit, elle ne se contourne pas : sans son badge, la porte du
+      // fond reste close. C'est ce qui fait des champions des paliers plutôt que des
+      // combats facultatifs — et ce qui donne enfin un rôle à `progression.badges`.
+      if (sortie.cote === 'nord' && region.typeArene && !aBadge(jeu.state, badgeDe(region.typeArene))) {
+        // Le sanctuaire mérite son propre refus : c'est la dernière porte du jeu, pas
+        // une arène de plus sur la route.
+        const versSanctuaire = jeu.monde.plans[sortie.vers]?.role === 'sanctuaire';
+        jeu.dialogue.dire(
+          versSanctuaire
+            ? jeu.t('monde.sanctuaireScelle')
+            : jeu.t('monde.arenePortesCloses', { type: jeu.nomType(region.typeArene) }),
+        );
+        return;
+      }
       this.changerDeRegion(jeu, sortie.vers, sortie.cote);
       return;
     }
@@ -254,7 +296,12 @@ export class SceneOverworld implements Scene {
     if (equipeHorsCombat(jeu.state)) return;
     if (!jeu.rng.chance(TAUX_RENCONTRE)) return;
 
-    const rencontre = tirerRencontre(jeu.rng, region.biome, phaseDuJour(jeu.state), region.niveaux);
+    // Le sanctuaire est le seul endroit où les créatures uniques se montrent. C'est ce
+    // qui rend le Terradex complétable : son compteur annonçait jusqu'ici un total que
+    // rien dans le monde ne permettait d'atteindre.
+    const rencontre = tirerRencontre(jeu.rng, region.biome, phaseDuJour(jeu.state), region.niveaux, {
+      uniques: region.role === 'sanctuaire',
+    });
     if (!rencontre) return;
 
     const sauvage = creerCreature(jeu.rng, {
@@ -286,9 +333,6 @@ export class SceneOverworld implements Scene {
   }
 
   private changerDeRegion(jeu: Jeu, vers: number, cote: 'nord' | 'sud'): void {
-    if (this.transitionEnCours) return;
-    this.transitionEnCours = true;
-
     const joueur = jeu.state.joueur;
     joueur.regionIndex = vers;
     marquerRegionVisitee(jeu.state, vers);
@@ -313,7 +357,6 @@ export class SceneOverworld implements Scene {
 
     this.annoncerRegion(jeu);
     jeu.sauvegarderLocalement();
-    this.transitionEnCours = false;
   }
 
   // ── Interaction ────────────────────────────────────────────────────────────
@@ -325,7 +368,10 @@ export class SceneOverworld implements Scene {
     const cible = region.entites.find(
       (entite) => entite.x === joueur.x + dx && entite.y === joueur.y + dy,
     );
-    if (!cible) return;
+    if (!cible) {
+      this.tenterPeche(jeu, region, joueur.x + dx, joueur.y + dy);
+      return;
+    }
 
     switch (cible.kind) {
       case 'panneau':
@@ -353,6 +399,44 @@ export class SceneOverworld implements Scene {
       case 'objet':
         break;
     }
+  }
+
+  /**
+   * Pêche : le second mode de rencontre.
+   *
+   * La canne promettait la pêche depuis le début sans qu'aucun code ne la lise. Elle
+   * ouvre la faune de rivière **partout où il y a de l'eau**, et pas seulement dans les
+   * régions de ce biome — la plupart des régions ont un étang ou un ruisseau qui, jusque
+   * là, ne servait qu'à barrer le passage.
+   */
+  private tenterPeche(jeu: Jeu, region: Region, x: number, y: number): void {
+    if (lireTuile(region, x, y) !== 'eau') return;
+    if (quantite(jeu.state, 'canne') === 0) {
+      jeu.dialogue.dire(jeu.t('monde.eauSansCanne'));
+      return;
+    }
+    if (equipeHorsCombat(jeu.state)) {
+      jeu.dialogue.dire(jeu.t('monde.equipeVide'));
+      return;
+    }
+
+    jeu.dialogue.dire(jeu.t('monde.pecheLance'));
+    jeu.dialogue.puis(() => {
+      const rencontre = jeu.rng.chance(TAUX_PECHE)
+        ? tirerRencontre(jeu.rng, 'riviere', phaseDuJour(jeu.state), region.niveaux)
+        : null;
+      if (!rencontre) {
+        jeu.dialogue.dire(jeu.t('monde.pecheRien'));
+        return;
+      }
+      const prise = creerCreature(jeu.rng, {
+        uid: prochainIdentifiant(jeu.state),
+        speciesId: rencontre.species,
+        niveau: rencontre.niveau,
+        origine: jeu.state.seedText,
+      });
+      jeu.pousser(new SceneCombat({ genre: 'sauvage', adversaires: [prise] }));
+    });
   }
 
   private proposerSoin(jeu: Jeu): void {
@@ -475,7 +559,11 @@ export class SceneOverworld implements Scene {
     const peintre = jeu.peintre;
     const heures = Math.floor(jeu.state.horloge.minutes / 60);
     const minutes = Math.floor(jeu.state.horloge.minutes % 60);
-    const heure = `${String(heures).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    // L'heure seule ne disait rien : c'est la **phase** qui décide de ce qu'on croise, et
+    // son nom n'apparaissait nulle part. Un joueur ne pouvait pas relier « il est 21 h »
+    // à « les créatures nocturnes sortent ».
+    const phase = phaseDuJour(jeu.state);
+    const heure = `${jeu.t(`heure.${phase}` as CleTexte)}  ${String(heures).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     peintre.texteDroite(heure, VIRTUAL_WIDTH - 4, 3, { couleur: COULEURS.texteInverse, ombre: true });
 
     if (this.annonce) {

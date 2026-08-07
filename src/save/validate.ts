@@ -14,16 +14,25 @@
 import { ITEM_IDS, type ItemId } from '../data/items.ts';
 import { MOVE_IDS, MOVES, type MoveId } from '../data/moves.ts';
 import { SPECIES_IDS, type SpeciesId } from '../data/species.ts';
-import { GENE_MAX, STATUSES, STAT_KEYS, TRAINING_MAX_PER_STAT, type StatBlock } from '../data/stats.ts';
+import {
+  BATTLE_STATS,
+  GENE_MAX,
+  STATUSES,
+  STAT_KEYS,
+  TRAINING_MAX_PER_STAT,
+  type BattleStat,
+  type StatBlock,
+} from '../data/stats.ts';
 import { TALENT_IDS, type TalentId } from '../data/talents.ts';
 import { LANGUES } from '../i18n/index.ts';
 import { DIRECTIONS } from '../world/characterIds.ts';
-import { NOMBRE_REGIONS } from '../world/worldgen.ts';
+import { REGIONS_MAX } from '../world/worldgen.ts';
 import {
   FORMAT_CREATURE,
   FORMAT_PARTIE,
   VERSION_ACTUELLE,
   checksumValide,
+  type CombatEnregistre,
   type CreatureEnregistree,
   type CreatureFile,
   type SaveFile,
@@ -133,6 +142,58 @@ function creature(valeur: unknown, chemin: string): CreatureEnregistree {
   };
 }
 
+/**
+ * Étages de statistique en combat.
+ *
+ * Ils ne passent pas par `blocStats` : ils portent sur `BATTLE_STATS` — les PV n'ont pas
+ * d'étage — et vont de −6 à +6 au lieu de 0 à un plafond.
+ */
+function blocEtages(valeur: unknown, chemin: string): Record<BattleStat, number> {
+  const source = objet(valeur, chemin);
+  const bloc = {} as Record<BattleStat, number>;
+  for (const stat of BATTLE_STATS) bloc[stat] = entier(source[stat] ?? 0, `${chemin}.${stat}`, -6, 6);
+  return bloc;
+}
+
+/**
+ * Valide le combat interrompu. Lève comme le reste ; l'appelant rattrape.
+ *
+ * Les incohérences vérifiées ici sont celles qui rendraient l'écran de combat
+ * inaffichable : un adversaire déjà hors de combat, une créature du joueur qui n'existe
+ * pas ou qui est K.O.
+ */
+function combatInterrompu(valeur: unknown, equipe: readonly CreatureEnregistree[]): CombatEnregistre {
+  const source = objet(valeur, 'combat');
+
+  const adversairesBruts = tableau(source.adversaires, 'combat.adversaires');
+  if (adversairesBruts.length === 0) echouer('combat.adversaires ne peut pas être vide');
+  if (adversairesBruts.length > 6) echouer('combat.adversaires dépasse six créatures');
+  const adversaires = adversairesBruts.map((membre, index) =>
+    creature(membre, `combat.adversaires[${index}]`),
+  );
+
+  const indexAdverse = entier(source.indexAdverse ?? 0, 'combat.indexAdverse', 0, adversaires.length - 1);
+  if (adversaires[indexAdverse]!.pv <= 0) echouer('l’adversaire en jeu est hors de combat');
+
+  const indexJoueur = entier(source.indexJoueur ?? 0, 'combat.indexJoueur', 0, equipe.length - 1);
+  if (equipe[indexJoueur]!.pv <= 0) echouer('la créature en jeu est hors de combat');
+
+  return {
+    genre: parmi(source.genre ?? 'sauvage', 'combat.genre', ['sauvage', 'dresseur'] as const),
+    adversaires,
+    dresseurId:
+      source.dresseurId === null || source.dresseurId === undefined
+        ? null
+        : texte(source.dresseurId, 'combat.dresseurId', 40),
+    indexJoueur,
+    indexAdverse,
+    etagesJoueur: blocEtages(source.etagesJoueur ?? {}, 'combat.etagesJoueur'),
+    etagesAdverse: blocEtages(source.etagesAdverse ?? {}, 'combat.etagesAdverse'),
+    tour: entier(source.tour ?? 0, 'combat.tour', 0, 9_999),
+    tentativesFuite: entier(source.tentativesFuite ?? 0, 'combat.tentativesFuite', 0, 999),
+  };
+}
+
 function enveloppe(brut: unknown, format: string): Record<string, unknown> {
   const document = objet(brut, 'le document');
   if (document.format !== format) {
@@ -183,6 +244,19 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
 
     const progressionBrute = objet(document.progression ?? {}, 'progression');
 
+    // Un bloc de combat abîmé ne coûte jamais la partie : on le laisse tomber avec un
+    // avertissement. Perdre un échange en cours contrarie ; perdre la sauvegarde qui le
+    // contient serait sans commune mesure.
+    let combat: CombatEnregistre | null = null;
+    if (document.combat !== null && document.combat !== undefined) {
+      try {
+        combat = combatInterrompu(document.combat, equipe);
+      } catch (erreur) {
+        if (!(erreur instanceof ErreurValidation)) throw erreur;
+        avertissements.push(`combat en cours abandonné : ${erreur.message}`);
+      }
+    }
+
     const partie: SaveFile = {
       format: FORMAT_PARTIE,
       version: VERSION_ACTUELLE,
@@ -192,14 +266,14 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
       majLe: texte(document.majLe ?? '', 'majLe', 40),
       joueur: {
         nom: texte(joueur.nom ?? 'Terra', 'joueur.nom', 20),
-        regionIndex: entier(joueur.regionIndex, 'joueur.regionIndex', 0, NOMBRE_REGIONS - 1),
+        regionIndex: entier(joueur.regionIndex, 'joueur.regionIndex', 0, REGIONS_MAX - 1),
         x: entier(joueur.x, 'joueur.x', 0, 255),
         y: entier(joueur.y, 'joueur.y', 0, 255),
         direction: parmi(joueur.direction ?? 'sud', 'joueur.direction', DIRECTIONS),
         pieces: entier(joueur.pieces ?? 0, 'joueur.pieces', 0, 9_999_999),
         tempsJeuMs: entier(joueur.tempsJeuMs ?? 0, 'joueur.tempsJeuMs', 0, 4_000_000_000),
         refuge: {
-          regionIndex: entier(refuge.regionIndex ?? 0, 'joueur.refuge.regionIndex', 0, NOMBRE_REGIONS - 1),
+          regionIndex: entier(refuge.regionIndex ?? 0, 'joueur.refuge.regionIndex', 0, REGIONS_MAX - 1),
           x: entier(refuge.x ?? 0, 'joueur.refuge.x', 0, 255),
           y: entier(refuge.y ?? 0, 'joueur.refuge.y', 0, 255),
         },
@@ -224,13 +298,14 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
           ...new Set(
             tableau(progressionBrute.regionsVisitees ?? [], 'progression.regionsVisitees').map(
               (valeur, index) =>
-                entier(valeur, `progression.regionsVisitees[${index}]`, 0, NOMBRE_REGIONS - 1),
+                entier(valeur, `progression.regionsVisitees[${index}]`, 0, REGIONS_MAX - 1),
             ),
           ),
         ],
       },
       horloge: { minutes: entier(objet(document.horloge ?? {}, 'horloge').minutes ?? 0, 'horloge.minutes', 0, 1439) },
       prochainUid: entier(document.prochainUid ?? 1, 'prochainUid', 1, 1_000_000),
+      combat,
       checksum: typeof document.checksum === 'string' ? document.checksum : '',
     };
 

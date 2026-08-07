@@ -15,6 +15,8 @@ export type ItemEffect =
   | { readonly kind: 'guerison'; readonly statut: StatusId | 'tout' }
   /** Sert à capturer : multiplie les chances. */
   | { readonly kind: 'capture'; readonly bonus: number }
+  /** Précipite une évolution que la créature aurait fini par atteindre. */
+  | { readonly kind: 'evolution' }
   /** Objet clé : aucun effet direct. */
   | { readonly kind: 'cle' };
 
@@ -116,7 +118,7 @@ const DEFINITIONS: Record<ItemId, Omit<Item, 'id'>> = {
   pierreEvolution: {
     nom: { fr: 'Pierre d’Éveil', en: 'Waking Stone' },
     description: { fr: 'Précipite une évolution déjà proche.', en: 'Hastens an evolution already close.' },
-    effet: { kind: 'cle' },
+    effet: { kind: 'evolution' },
     prix: 0,
     usage: 'monde',
   },

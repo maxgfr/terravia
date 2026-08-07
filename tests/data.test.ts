@@ -61,10 +61,10 @@ describe('attaques', () => {
 });
 
 describe('espèces', () => {
-  it('déclare 30 espèces numérotées sans trou', () => {
-    expect(SPECIES_IDS).toHaveLength(30);
+  it('déclare quarante espèces numérotées sans trou', () => {
+    expect(SPECIES_IDS).toHaveLength(40);
     const numeros = SPECIES_IDS.map((id) => SPECIES[id].numero);
-    expect(numeros).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    expect(numeros).toEqual(Array.from({ length: SPECIES_IDS.length }, (_, i) => i + 1));
   });
 
   it('ne référence que des attaques, talents et biomes existants', () => {

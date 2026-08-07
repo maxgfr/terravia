@@ -32,15 +32,17 @@ const FR = {
   'depart.non': 'Non',
 
   // ── Monde ──────────────────────────────────────────────────────────────────
-  'monde.entree': '{region}',
   'monde.objetTrouve': 'Vous ramassez {objet} !',
   'monde.sacPlein': 'Votre sac est plein.',
-  'monde.rien': 'Il n’y a rien ici.',
   'monde.soinFait': 'Votre équipe est remise sur pied.',
-  'monde.boutiqueVide': 'Vous n’avez pas de quoi acheter cela.',
   'monde.acheteOk': '{objet} × {quantite}. Merci !',
   'monde.pasAssez': 'Il vous manque {manque} pièces.',
   'monde.equipeVide': 'Aucune créature en état de se battre.',
+  'monde.arenePortesCloses': 'La porte du fond est close. Battez le champion {type} pour passer.',
+  'monde.eauSansCanne': 'L’eau est profonde. Avec de quoi pêcher, elle serait pleine de promesses.',
+  'monde.pecheLance': 'Vous lancez la ligne…',
+  'monde.pecheRien': 'Ça ne mord pas.',
+  'monde.sanctuaireScelle': 'Le sanctuaire ne s’ouvre qu’aux vainqueurs de toutes les arènes.',
 
   // ── Menu principal ─────────────────────────────────────────────────────────
   'menu.equipe': 'Équipe',
@@ -53,6 +55,16 @@ const FR = {
   'menu.fermer': 'Fermer',
   'menu.vide': 'Rien ici.',
   'menu.retour': 'Retour',
+  'menu.reserveVide': 'Personne ici.',
+  'menu.deposer': 'Valider : déposer en réserve',
+  'menu.reprendre': 'Valider : reprendre dans l’équipe',
+  'menu.echanger': 'Valider : échanger avec la gauche',
+  'menu.equipeMinimale': 'Vous ne pouvez pas partir sans créature.',
+  'menu.rejointEquipe': '{nom} rejoint l’équipe.',
+  'menu.echange': '{nom} prend sa place dans l’équipe.',
+  'menu.sansCarte': 'Vous n’avez pas de carte. Il y en avait une au bourg.',
+  'menu.pierreQui': 'Sur quelle créature poser la Pierre d’Éveil ?',
+  'menu.aucuneEvolution': 'Aucune de vos créatures n’a d’évolution devant elle.',
 
   // ── Paramètres ─────────────────────────────────────────────────────────────
   'parametres.titre': 'Paramètres',
@@ -67,7 +79,7 @@ const FR = {
   'aide.suite': 'Entrée : suite · Échap : fermer',
   'aide.but.titre': 'Le but',
   'aide.but.texte':
-    'Vous partez du bourg avec une créature. L’arène est tout au nord, sept régions plus loin. Capturez, entraînez, et battez le champion.',
+    'Vous partez du bourg avec une créature. La route file plein nord, jalonnée d’arènes. Capturez, entraînez, battez chaque champion — le dernier ouvre le sanctuaire.',
   'aide.controles.titre': 'Se déplacer',
   'aide.controles.texte':
     'Flèches ou ZQSD pour marcher. Entrée ou E pour parler, lire un panneau, ramasser. Échap ou M ouvre le menu. Sur téléphone, les boutons à l’écran font la même chose.',
@@ -80,26 +92,34 @@ const FR = {
   'aide.seed.titre': 'La seed',
   'aide.seed.texte':
     'Le monde entier est reconstruit à partir de la seed de votre partie. Notez-la : elle suffit à retrouver ce monde-ci, et à le faire découvrir à quelqu’un d’autre.',
+  'aide.equipe.titre': 'Équipe et réserve',
+  'aide.equipe.texte':
+    'Six créatures vous accompagnent au maximum. Les suivantes attendent en réserve — rien n’est perdu. Le menu permet d’y déposer une créature et d’en reprendre une à tout moment.',
+  'aide.arenes.titre': 'Arènes et insignes',
+  'aide.arenes.texte':
+    'Chaque arène a son champion et sa spécialité. Le battre remporte son insigne, et l’insigne ouvre la porte du fond : on ne contourne pas une arène. Le dernier insigne ouvre le sanctuaire.',
+  'aide.peche.titre': 'Pêche et objets rares',
+  'aide.peche.texte':
+    'La canne se trouve au village : face à l’eau, elle remonte des créatures qu’on ne croise pas à pied. La Pierre d’Éveil dort au fond des grottes et précipite une évolution. La carte attend au bourg.',
   'aide.sauvegarde.titre': 'Sauvegarder',
   'aide.sauvegarde.texte':
     'La partie s’enregistre toute seule dans ce navigateur. Depuis le menu, vous pouvez l’exporter en fichier JSON, puis la réimporter ici ou ailleurs — glissez simplement le fichier sur la page.',
 
   // ── Carte ──────────────────────────────────────────────────────────────────
-  'carte.titre': 'Carte',
-  'carte.vous': 'Vous êtes ici',
-  'carte.inconnue': 'Région non explorée',
   'carte.legende': '♦ vous · ▶ sortie · ♥ objet',
   'carte.progression': 'Région {index} sur {total}',
 
   // ── Didacticiel de première partie ─────────────────────────────────────────
   'didacticiel.1':
-    'Vous voilà dehors. L’arène est plein nord — il faut traverser sept régions pour y arriver.',
+    'Vous voilà dehors. La route monte plein nord, d’une région à l’autre, jusqu’à la première arène.',
   'didacticiel.2':
     'Marchez avec les flèches. Parlez aux gens et lisez les panneaux avec Entrée : plusieurs donnent de bons conseils.',
   'didacticiel.3':
     'Les hautes herbes sombres abritent des créatures sauvages. Ouvrez le menu avec Échap pour votre équipe, votre sac et la carte.',
 
   // ── Sauvegarde ─────────────────────────────────────────────────────────────
+  'sauvegarde.maintenant': 'Enregistrer maintenant',
+  'sauvegarde.impossible': 'Ce navigateur refuse d’enregistrer. Exportez un fichier.',
   'sauvegarde.exporter': 'Exporter en JSON',
   'sauvegarde.importer': 'Importer un JSON',
   'sauvegarde.exporterCreature': 'Exporter une créature',
@@ -155,25 +175,40 @@ const FR = {
   'combat.captureReussie': '{nom} est scellé dans le prisme !',
   'combat.captureRatee': 'Le prisme s’est ouvert !',
   'combat.secousses': '{secousses} secousses…',
-  'combat.victoire': 'Combat gagné.',
   'combat.gainXp': '{nom} gagne {xp} points d’expérience.',
   'combat.niveau': '{nom} passe au niveau {niveau} !',
   'combat.apprend': '{nom} apprend {attaque} !',
   'combat.oublier': '{nom} veut apprendre {attaque}. Quelle attaque oublier ?',
+  'combat.oublie': '{nom} oublie {ancienne}.',
+  'combat.renoncer': 'Ne rien oublier',
+  'combat.renonce': '{nom} n’apprend pas {attaque}.',
   'combat.evolue': '{nom} évolue en {evolution} !',
   'combat.recompense': 'Vous recevez {pieces} pièces.',
+  'combat.badge': 'Vous remportez l’insigne {type} !',
   'combat.dressage': '{nom} gagne {points} en {stat}.',
   'combat.defaite': 'Toutes vos créatures sont hors de combat…',
   'combat.retourBourg': 'Vous reprenez vos esprits au dernier lieu sûr.',
   'combat.plusDePp': 'Plus aucune attaque disponible.',
   'combat.pasDeFuite': 'Choisissez une créature encore debout.',
+  'combat.dejaEnJeu': '{nom} est déjà sur le terrain.',
+  'combat.captureImpossible': 'On ne capture pas la créature d’un dresseur.',
+  'combat.reprise': 'Le combat contre {nom} reprend.',
+
+  // ── Fin de partie ──────────────────────────────────────────────────────────
+  'fin.titre': 'TERRAVIA TRAVERSÉE',
+  'fin.temps': 'Temps de jeu',
+  'fin.terradex': 'Terradex',
+  'fin.dresseurs': 'Dresseurs vaincus',
+  'fin.seed': 'Seed',
+  'fin.sanctuaire': 'Le sanctuaire s’est ouvert au bout de la route. On y croise ce qui ne se montre nulle part ailleurs.',
+  'fin.reprendre': 'Reprendre l’aventure',
+  'fin.nouvelleSeed': 'Repartir sur une autre seed',
 
   // ── Fiche de créature ──────────────────────────────────────────────────────
   'fiche.niveau': 'N. {niveau}',
   'fiche.pv': 'PV',
   'fiche.xp': 'EXP',
   'fiche.talent': 'Talent',
-  'fiche.type': 'Type',
   'fiche.genes': 'Gènes',
   'fiche.dressage': 'Dressage',
   'fiche.taille': '{taille} m · {poids} kg',
@@ -184,15 +219,11 @@ const FR = {
   'fiche.infaillible': '—',
 
   // ── Terradex ───────────────────────────────────────────────────────────────
-  'terradex.titre': 'Terradex',
   'terradex.progression': '{vus} / {total} rencontrés · {captures} capturés',
   'terradex.inconnu': '???',
-  'terradex.faiblesses': 'Faible contre',
-  'terradex.resistances': 'Résiste à',
 
   // ── Boutique et soins ──────────────────────────────────────────────────────
   'boutique.titre': 'Boutique',
-  'boutique.acheter': 'Acheter',
   'boutique.quitter': 'Quitter',
   'boutique.pieces': '{pieces} pièces',
   'soin.propose': 'Voulez-vous que je remette votre équipe sur pied ?',
@@ -208,6 +239,8 @@ const FR = {
     'Terravia change à chaque génération. Notez bien votre seed : c’est la seule façon de retrouver ce monde-ci.',
   'dialogue.marchand': 'Prismes, potions, antidotes. De quoi tenir jusqu’à l’arène.',
   'dialogue.soigneuse': 'Posez vos prismes sur le comptoir, je m’occupe du reste.',
+  'dialogue.sanctuaire':
+    'Ici finissent les routes et commencent les légendes. Restez, observez : ce qui se montre le jour n’est pas ce qui rôde la nuit.',
   'dialogue.champion':
     'Personne n’arrive jusqu’ici par hasard. Montrez-moi ce que vous avez appris en chemin.',
   'dialogue.championVaincu':
@@ -232,7 +265,7 @@ const FR = {
   'dialogue.dresseurVaincu.3': 'Je n’ai rien vu venir.',
   'dialogue.dresseurVaincu.4': 'Reprenez la route, vous l’avez méritée.',
   'dialogue.dresseurVaincu.5': 'La prochaine fois, ce sera différent.',
-  'dialogue.panneau.bourg': 'BOURG — Là où tout commence. L’arène est plein nord.',
+  'dialogue.panneau.bourg': 'BOURG — Là où tout commence. La route est plein nord.',
   'dialogue.panneau.0': 'Attention : hautes herbes. Ne traversez pas sans créature.',
   'dialogue.panneau.1': 'Vers le nord : l’arène. Vers le sud : chez vous.',
   'dialogue.panneau.2': 'Le pont est coupé depuis l’hiver dernier. Contournez.',
@@ -242,7 +275,6 @@ const FR = {
   // ── Contrôles ──────────────────────────────────────────────────────────────
   'aide.deplacer': 'Flèches ou ZQSD : se déplacer',
   'aide.action': 'Entrée ou E : parler, ramasser',
-  'aide.menu': 'Échap ou M : menu',
   'aide.fermer': 'Échap : fermer',
 } as const;
 
@@ -264,15 +296,17 @@ const EN: Record<CleTexte, string> = {
   'depart.oui': 'Yes',
   'depart.non': 'No',
 
-  'monde.entree': '{region}',
   'monde.objetTrouve': 'You picked up {objet}!',
   'monde.sacPlein': 'Your bag is full.',
-  'monde.rien': 'There is nothing here.',
   'monde.soinFait': 'Your team is back on its feet.',
-  'monde.boutiqueVide': 'You cannot afford that.',
   'monde.acheteOk': '{objet} × {quantite}. Thank you!',
   'monde.pasAssez': 'You are {manque} coins short.',
   'monde.equipeVide': 'No creature is fit to fight.',
+  'monde.arenePortesCloses': 'The far door is shut. Beat the {type} champion to pass.',
+  'monde.eauSansCanne': 'The water runs deep. With something to fish with, it would be full of promise.',
+  'monde.pecheLance': 'You cast the line…',
+  'monde.pecheRien': 'Nothing bites.',
+  'monde.sanctuaireScelle': 'The sanctum opens only to those who cleared every arena.',
 
   'menu.equipe': 'Team',
   'menu.sac': 'Bag',
@@ -284,6 +318,16 @@ const EN: Record<CleTexte, string> = {
   'menu.fermer': 'Close',
   'menu.vide': 'Nothing here.',
   'menu.retour': 'Back',
+  'menu.reserveVide': 'Nobody here.',
+  'menu.deposer': 'Confirm: send to storage',
+  'menu.reprendre': 'Confirm: take into the party',
+  'menu.echanger': 'Confirm: swap with the left pick',
+  'menu.equipeMinimale': 'You cannot leave without a creature.',
+  'menu.rejointEquipe': '{nom} joins the party.',
+  'menu.echange': '{nom} takes its place in the party.',
+  'menu.sansCarte': 'You have no map. There was one back in the hamlet.',
+  'menu.pierreQui': 'Which creature should the Waking Stone touch?',
+  'menu.aucuneEvolution': 'None of your creatures has an evolution ahead of it.',
 
   'parametres.titre': 'Settings',
   'parametres.langue': 'Language: English',
@@ -296,7 +340,7 @@ const EN: Record<CleTexte, string> = {
   'aide.suite': 'Enter: next · Escape: close',
   'aide.but.titre': 'The goal',
   'aide.but.texte':
-    'You leave the hamlet with one creature. The arena lies due north, seven regions away. Catch, train, and beat the champion.',
+    'You leave the hamlet with one creature. The road runs due north, marked by arenas. Catch, train, beat every champion — the last one opens the sanctum.',
   'aide.controles.titre': 'Moving around',
   'aide.controles.texte':
     'Arrows or WASD to walk. Enter or E to talk, read a sign, pick things up. Escape or M opens the menu. On a phone, the on-screen buttons do the same.',
@@ -309,22 +353,30 @@ const EN: Record<CleTexte, string> = {
   'aide.seed.titre': 'The seed',
   'aide.seed.texte':
     'The whole world is rebuilt from your game’s seed. Write it down: it is all you need to find this world again, or to show it to someone else.',
+  'aide.equipe.titre': 'Party and storage',
+  'aide.equipe.texte':
+    'Six creatures travel with you at most. The rest wait in storage — nothing is ever lost. The menu lets you send one away and take one back at any time.',
+  'aide.arenes.titre': 'Arenas and insignia',
+  'aide.arenes.texte':
+    'Each arena has its champion and its speciality. Beating one earns its insignia, and the insignia opens the far door: an arena cannot be walked around. The last insignia opens the sanctum.',
+  'aide.peche.titre': 'Fishing and rare items',
+  'aide.peche.texte':
+    'The rod waits in the village: facing water, it brings up creatures you never meet on foot. The Waking Stone sleeps deep in the caves and hastens an evolution. The map waits back in the hamlet.',
   'aide.sauvegarde.titre': 'Saving',
   'aide.sauvegarde.texte':
     'The game saves itself in this browser. From the menu you can export it as a JSON file and import it back here or elsewhere — just drop the file onto the page.',
 
-  'carte.titre': 'Map',
-  'carte.vous': 'You are here',
-  'carte.inconnue': 'Region not explored',
   'carte.legende': '♦ you · ▶ exit · ♥ item',
   'carte.progression': 'Region {index} of {total}',
 
-  'didacticiel.1': 'You are outside. The arena is due north — seven regions to cross to reach it.',
+  'didacticiel.1': 'You are outside. The road climbs due north, region after region, up to the first arena.',
   'didacticiel.2':
     'Walk with the arrows. Talk to people and read signs with Enter: several of them give good advice.',
   'didacticiel.3':
     'The dark tall grass hides wild creatures. Open the menu with Escape for your team, your bag and the map.',
 
+  'sauvegarde.maintenant': 'Save now',
+  'sauvegarde.impossible': 'This browser refuses to save. Export a file instead.',
   'sauvegarde.exporter': 'Export as JSON',
   'sauvegarde.importer': 'Import a JSON',
   'sauvegarde.exporterCreature': 'Export a creature',
@@ -379,24 +431,38 @@ const EN: Record<CleTexte, string> = {
   'combat.captureReussie': '{nom} is sealed in the prism!',
   'combat.captureRatee': 'The prism sprang open!',
   'combat.secousses': '{secousses} shakes…',
-  'combat.victoire': 'Battle won.',
   'combat.gainXp': '{nom} gains {xp} experience points.',
   'combat.niveau': '{nom} reaches level {niveau}!',
   'combat.apprend': '{nom} learns {attaque}!',
   'combat.oublier': '{nom} wants to learn {attaque}. Which move should it forget?',
+  'combat.oublie': '{nom} forgets {ancienne}.',
+  'combat.renoncer': 'Forget nothing',
+  'combat.renonce': '{nom} does not learn {attaque}.',
   'combat.evolue': '{nom} evolves into {evolution}!',
   'combat.recompense': 'You receive {pieces} coins.',
+  'combat.badge': 'You earn the {type} insignia!',
   'combat.dressage': '{nom} gains {points} in {stat}.',
   'combat.defaite': 'Your whole team is out of the fight…',
   'combat.retourBourg': 'You come to at the last safe place.',
   'combat.plusDePp': 'No move left to use.',
   'combat.pasDeFuite': 'Pick a creature still standing.',
+  'combat.dejaEnJeu': '{nom} is already out.',
+  'combat.captureImpossible': 'You cannot catch another trainer’s creature.',
+  'combat.reprise': 'The battle against {nom} resumes.',
+
+  'fin.titre': 'TERRAVIA CROSSED',
+  'fin.temps': 'Play time',
+  'fin.terradex': 'Terradex',
+  'fin.dresseurs': 'Trainers beaten',
+  'fin.seed': 'Seed',
+  'fin.sanctuaire': 'The sanctum has opened at the end of the road. What lives there shows itself nowhere else.',
+  'fin.reprendre': 'Carry on',
+  'fin.nouvelleSeed': 'Start over on another seed',
 
   'fiche.niveau': 'Lv. {niveau}',
   'fiche.pv': 'HP',
   'fiche.xp': 'EXP',
   'fiche.talent': 'Talent',
-  'fiche.type': 'Type',
   'fiche.genes': 'Genes',
   'fiche.dressage': 'Training',
   'fiche.taille': '{taille} m · {poids} kg',
@@ -406,14 +472,10 @@ const EN: Record<CleTexte, string> = {
   'fiche.precision': 'Acc.',
   'fiche.infaillible': '—',
 
-  'terradex.titre': 'Terradex',
   'terradex.progression': '{vus} / {total} seen · {captures} caught',
   'terradex.inconnu': '???',
-  'terradex.faiblesses': 'Weak to',
-  'terradex.resistances': 'Resists',
 
   'boutique.titre': 'Shop',
-  'boutique.acheter': 'Buy',
   'boutique.quitter': 'Leave',
   'boutique.pieces': '{pieces} coins',
   'soin.propose': 'Shall I put your team back on its feet?',
@@ -427,6 +489,8 @@ const EN: Record<CleTexte, string> = {
     'Terravia is rebuilt for every seed. Write yours down — it is the only way back to this world.',
   'dialogue.marchand': 'Prisms, potions, antidotes. Enough to reach the arena.',
   'dialogue.soigneuse': 'Set your prisms on the counter, I will handle the rest.',
+  'dialogue.sanctuaire':
+    'Here the roads end and the legends begin. Stay, and watch: what shows itself by day is not what prowls at night.',
   'dialogue.champion':
     'Nobody reaches this place by accident. Show me what the road taught you.',
   'dialogue.championVaincu':
@@ -451,7 +515,7 @@ const EN: Record<CleTexte, string> = {
   'dialogue.dresseurVaincu.3': 'I never saw it coming.',
   'dialogue.dresseurVaincu.4': 'Back to the road — you earned it.',
   'dialogue.dresseurVaincu.5': 'Next time it goes differently.',
-  'dialogue.panneau.bourg': 'HAMLET — Where it all starts. The arena lies due north.',
+  'dialogue.panneau.bourg': 'HAMLET — Where it all starts. The road runs due north.',
   'dialogue.panneau.0': 'Warning: tall grass. Do not cross without a creature.',
   'dialogue.panneau.1': 'North: the arena. South: home.',
   'dialogue.panneau.2': 'The bridge has been out since last winter. Go around.',
@@ -460,7 +524,6 @@ const EN: Record<CleTexte, string> = {
 
   'aide.deplacer': 'Arrows or WASD: move',
   'aide.action': 'Enter or E: talk, pick up',
-  'aide.menu': 'Escape or M: menu',
   'aide.fermer': 'Escape: close',
 };
 

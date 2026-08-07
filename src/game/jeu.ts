@@ -20,7 +20,8 @@ import type { Peintre } from '../ui/draw.ts';
 import { creerMonde, type World } from '../world/worldgen.ts';
 import { nomAffiche, type CreatureInstance } from './creature.ts';
 import { exporterPartie } from '../save/serialize.ts';
-import { enregistrerLocalement } from '../save/storage.ts';
+import { empreinte, enregistrerLocalement } from '../save/storage.ts';
+import type { SaveFile } from '../save/format.ts';
 import type { GameState } from './state.ts';
 
 export interface Scene {
@@ -29,9 +30,19 @@ export interface Scene {
   quitter?(jeu: Jeu): void;
   mettreAJour(jeu: Jeu, step: number): void;
   dessiner(jeu: Jeu): void;
+  /**
+   * Appelé sur toute la pile juste avant une écriture de la partie : la scène y dépose
+   * ce qu'elle est seule à connaître. Le combat s'en sert pour enregistrer l'échange en
+   * cours, si bien qu'une sauvegarde déclenchée à n'importe quel instant — l'engrenage,
+   * la fermeture de l'onglet — le capte tel qu'il est, même sous un autre écran.
+   */
+  avantSauvegarde?(jeu: Jeu): void;
   /** Une scène opaque dispense de dessiner celles du dessous. */
   readonly opaque?: boolean;
 }
+
+/** Intervalle minimal entre deux écritures automatiques, en millisecondes. */
+const INTERVALLE_SAUVEGARDE_MS = 10_000;
 
 export class Jeu {
   state: GameState;
@@ -44,6 +55,10 @@ export class Jeu {
    */
   readonly rng: Rng;
   private readonly pile: Scene[] = [];
+
+  /** Cadencement et déduplication de la sauvegarde automatique. */
+  private depuisDerniereEcriture = 0;
+  private derniereEmpreinte = '';
 
   readonly peintre: Peintre;
   readonly entrees: Entrees;
@@ -110,6 +125,10 @@ export class Jeu {
     this.state = state;
     this.monde = creerMonde(state.seedText);
     this.dialogue.vider();
+    // L'empreinte décrivait la partie précédente : la garder ferait passer la nouvelle
+    // pour inchangée, et la première écriture périodique n'aurait jamais lieu.
+    this.derniereEmpreinte = '';
+    this.depuisDerniereEcriture = 0;
   }
 
   // ── Traduction ─────────────────────────────────────────────────────────────
@@ -157,8 +176,51 @@ export class Jeu {
 
   // ── Sauvegarde automatique ─────────────────────────────────────────────────
 
+  /**
+   * Le document de la partie courante, ou `null` si elle n'est pas enregistrable.
+   *
+   * Une partie sans créature ne repasse pas la validation au chargement — « l'équipe est
+   * vide ». L'écrire effacerait la précédente et rendrait « Continuer » inutilisable. Le
+   * cas se produit vraiment : entre le choix de la seed et celui du starter, l'état est
+   * une partie neuve à équipe vide, et fermer l'onglet là détruisait l'ancienne.
+   */
+  documentDePartie(): SaveFile | null {
+    if (this.state.equipe.length === 0) return null;
+    // Toute la pile est consultée, pas seulement son sommet : ouvrir l'engrenage pendant
+    // un combat pose les réglages par-dessus lui, et c'est le combat, plus bas, qui a
+    // quelque chose à déposer.
+    for (const scene of this.pile) scene.avantSauvegarde?.(this);
+    return exporterPartie(this.state, new Date().toISOString());
+  }
+
   /** Enregistre la partie dans le navigateur. Silencieux : le jeu continue sans. */
   sauvegarderLocalement(): boolean {
-    return enregistrerLocalement(exporterPartie(this.state, new Date().toISOString()));
+    const document = this.documentDePartie();
+    if (!document) return false;
+    return this.ecrire(document);
+  }
+
+  /**
+   * Écriture périodique, appelée à chaque trame du monde parcouru.
+   *
+   * Sans elle, traverser une grande région ne déclenche aucun point de sauvegarde : ni
+   * changement de région, ni ramassage, ni combat. Position, horloge et temps de jeu ne
+   * vivaient alors qu'en mémoire.
+   */
+  sauvegarderSiModifie(deltaMs: number): boolean {
+    this.depuisDerniereEcriture += deltaMs;
+    if (this.depuisDerniereEcriture < INTERVALLE_SAUVEGARDE_MS) return false;
+    this.depuisDerniereEcriture = 0;
+
+    const document = this.documentDePartie();
+    if (!document || empreinte(document) === this.derniereEmpreinte) return false;
+    return this.ecrire(document);
+  }
+
+  private ecrire(document: SaveFile): boolean {
+    if (!enregistrerLocalement(document)) return false;
+    this.derniereEmpreinte = empreinte(document);
+    this.depuisDerniereEcriture = 0;
+    return true;
   }
 }

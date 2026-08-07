@@ -19,16 +19,18 @@
 import { rngFor, type Rng } from '../core/rng.ts';
 import type { Biome } from '../data/biomes.ts';
 import type { ItemId } from '../data/items.ts';
-import { SPECIES, type SpeciesId } from '../data/species.ts';
+import { SPECIES, SPECIES_IDS, type SpeciesId } from '../data/species.ts';
+import type { ElementType } from '../data/types.ts';
 import { fbm, quantile } from './noise.ts';
 import { tableRencontre } from './encounters.ts';
+import { baseStatTotal } from '../data/species.ts';
 import { entiteId, type Dresseur, type Entite, type Position } from './entities.ts';
 import { TILES, tileFromIndex, tileIndex, type TileId } from './tiles.ts';
 
 export const REGION_WIDTH = 48;
 export const REGION_HEIGHT = 36;
 
-export type RegionRole = 'bourg' | 'route' | 'bois' | 'village' | 'grotte' | 'arene';
+export type RegionRole = 'bourg' | 'route' | 'bois' | 'village' | 'grotte' | 'arene' | 'sanctuaire';
 
 export interface RegionPlan {
   readonly index: number;
@@ -38,6 +40,8 @@ export interface RegionPlan {
   readonly niveaux: { readonly min: number; readonly max: number };
   readonly precedente: number | null;
   readonly suivante: number | null;
+  /** Spécialité du champion, pour une arène. C'est elle qui nomme le badge. */
+  readonly typeArene?: ElementType;
 }
 
 export interface Sortie {
@@ -53,6 +57,8 @@ export interface Region {
   readonly biome: Biome;
   readonly nom: { readonly fr: string; readonly en: string };
   readonly niveaux: { readonly min: number; readonly max: number };
+  /** Spécialité du champion, reprise du plan pour l'affichage et le badge. */
+  readonly typeArene?: ElementType;
   readonly width: number;
   readonly height: number;
   /** Un index de tuile par case, ligne par ligne. */
@@ -358,22 +364,107 @@ const DIALOGUES_VILLAGEOIS = 8;
 const DIALOGUES_DRESSEUR = 6;
 const DIALOGUES_PANNEAU = 5;
 
-/** Compose une équipe de dresseur cohérente avec le biome et le niveau de la région. */
-function composerEquipe(rng: Rng, plan: RegionPlan, taille: number, bonusNiveau: number): Dresseur['equipe'] {
-  const disponibles = tableRencontre(plan.biome, 'jour');
-  const secours: SpeciesId[] = disponibles.length > 0 ? disponibles : ['mulotin'];
+/**
+ * Compose une équipe de dresseur.
+ *
+ * `parmi` restreint le vivier : un dresseur de passage puise dans le biome qu'il occupe,
+ * un champion dans sa spécialité. Sans ce paramètre, tous les champions du monde
+ * aligneraient les mêmes créatures de ruines.
+ */
+function composerEquipe(
+  rng: Rng,
+  plan: RegionPlan,
+  taille: number,
+  bonusNiveau: number,
+  parmi?: readonly SpeciesId[],
+  /** Espèces déjà alignées. Partagé quand une équipe se compose en plusieurs passes. */
+  dejaPrises: Set<SpeciesId> = new Set(),
+): Dresseur['equipe'] {
+  // Un dresseur de route aligne ce que la région abrite, plafond de puissance compris :
+  // il ne sort pas une évolution finale là où le joueur n'en croise pas.
+  const local = tableRencontre(plan.biome, 'jour', { niveauMax: plan.niveaux.max });
+  // Deux viviers essayés dans l'ordre : celui qu'on a demandé, puis la région en secours.
+  // Une fois promues à leur forme finale, les trois espèces d'une lignée n'en font plus
+  // qu'une, et une spécialité mince s'épuise en deux tirages.
+  const viviers = [parmi ?? local, local, ['mulotin'] as const]
+    .filter((vivier) => vivier.length > 0)
+    .map((vivier) => rng.shuffle([...vivier]));
+
   return Array.from({ length: taille }, () => {
-    const species = rng.pick(secours);
     const niveau = Math.max(2, plan.niveaux.max + bonusNiveau + rng.int(-1, 1));
-    const evolution = SPECIES[species].evolution;
-    return {
-      species,
-      niveau: evolution && niveau >= evolution.niveau ? evolution.niveau - 1 : niveau,
-    };
+    let species: SpeciesId | null = null;
+    for (const vivier of viviers) {
+      const libre = vivier.find((id) => !dejaPrises.has(formeAuNiveau(id, niveau)));
+      if (libre !== undefined) {
+        species = formeAuNiveau(libre, niveau);
+        break;
+      }
+    }
+    // Tous les viviers épuisés : on se résout à un doublon plutôt qu'à une équipe courte.
+    species ??= formeAuNiveau(viviers[0]![0]!, niveau);
+    dejaPrises.add(species);
+    return { species, niveau };
   });
 }
 
+/**
+ * La forme qu'une espèce a réellement atteinte à ce niveau.
+ *
+ * Le niveau était auparavant rabattu sous le seuil d'évolution, si bien qu'un champion de
+ * niveau 35 alignait « folianz 15 » aux côtés d'un « sylvanor 37 ». C'est l'espèce qui
+ * doit avancer dans sa lignée, pas le niveau qui doit reculer : un dresseur montre des
+ * créatures qu'il a élevées, pas des nouveau-nés bridés.
+ */
+function formeAuNiveau(id: SpeciesId, niveau: number): SpeciesId {
+  let courant = id;
+  // La borne protège d'une lignée circulaire ; un test des données l'interdit déjà.
+  for (let etape = 0; etape < SPECIES_IDS.length; etape++) {
+    const evolution = SPECIES[courant].evolution;
+    if (!evolution || niveau < evolution.niveau) return courant;
+    courant = evolution.vers;
+  }
+  return courant;
+}
+
+/**
+ * Les espèces d'un type donné, les plus abouties d'abord.
+ *
+ * C'est ce qui donne au champion une équipe qui ressemble à sa spécialité, et une tête
+ * d'affiche qui n'est pas un premier stade.
+ */
+function especesDuType(type: ElementType): SpeciesId[] {
+  return SPECIES_IDS.filter((id) => SPECIES[id].types.includes(type) && SPECIES[id].tauxCapture > 5).sort(
+    (a, b) => baseStatTotal(SPECIES[b]) - baseStatTotal(SPECIES[a]),
+  );
+}
+
 const BUTIN_COMMUN: readonly ItemId[] = ['potion', 'prisme', 'baie', 'antidote'];
+
+/**
+ * Pose un objet unique dans la région, à une case libre proche de la position visée.
+ *
+ * La carte, la canne et la pierre d'Éveil existaient dans le catalogue sans qu'aucun
+ * générateur ne les distribue : elles n'étaient donc trouvables nulle part. Chacune est
+ * désormais placée là où elle a du sens — la carte au bourg, la canne au village, la
+ * pierre au fond d'une grotte.
+ */
+function poserObjetUnique(
+  contexte: Contexte,
+  entites: Entite[],
+  item: ItemId,
+  vise: Position,
+  compteur: number,
+): void {
+  const place = caseLibre(contexte, vise);
+  if (!place) return;
+  entites.push({
+    kind: 'objet',
+    id: entiteId(contexte.plan.index, 'objet', compteur),
+    ...place,
+    item,
+    quantite: 1,
+  });
+}
 
 // ── Générateurs par rôle ─────────────────────────────────────────────────────
 
@@ -406,6 +497,9 @@ const genererBourg: Generateur = (contexte, portes) => {
   // Une allée centrale relie la porte nord au cœur du bourg.
   if (portes.nord) creuserCouloir(tiles, rng, centre, portes.nord, 'chemin');
   for (let x = centre.x - 10; x <= centre.x + 10; x++) poser(tiles, x, centre.y, 'chemin');
+
+  // La carte du monde attend au bourg : c'est elle qui ouvre l'écran de carte.
+  poserObjetUnique(contexte, entites, 'carte', { x: centre.x + 3, y: centre.y - 2 }, 90);
 
   const professeur = caseLibre(contexte, { x: centre.x - 5, y: 13 });
   if (professeur) {
@@ -509,6 +603,9 @@ const genererVillage: Generateur = (contexte, portes) => {
   if (portes.nord) creuserCouloir(tiles, rng, centre, portes.nord, 'chemin');
   if (portes.sud) creuserCouloir(tiles, rng, centre, portes.sud, 'chemin');
 
+  // La canne au village : à partir d'ici, toute étendue d'eau devient un lieu de pêche.
+  poserObjetUnique(contexte, entites, 'canne', { x: centre.x - 6, y: centre.y + 3 }, 90);
+
   return { depart: portes.sud ?? centre, entites };
 };
 
@@ -538,7 +635,32 @@ const genererArene: Generateur = (contexte, portes) => {
   }
 
   if (portes.sud) creuserCouloir(tiles, rng, { x: centreX, y: REGION_HEIGHT - 7 }, portes.sud, 'solInterieur');
+  // La porte du fond : une arène traversée n'est plus le bout du monde, on en ressort
+  // par le nord une fois le champion battu.
+  if (portes.nord) {
+    for (let x = centreX - 1; x <= centreX + 1; x++) poser(tiles, x, 5, 'tapis');
+    for (let y = 1; y <= 9; y++) {
+      for (let x = centreX - 1; x <= centreX + 1; x++) poser(tiles, x, y, 'solInterieur');
+    }
+    creuserCouloir(tiles, rng, { x: centreX, y: 4 }, portes.nord, 'solInterieur');
+  }
 
+  // Le champion tient sa spécialité : son escorte est composée dans son type, et sa tête
+  // d'affiche en est la créature la plus aboutie qui n'y figure pas déjà. Sans cette
+  // dernière condition, une arène de type mince alignait deux fois la même créature —
+  // et la plus puissante du jeu, qui plus est.
+  const specialite = especesDuType(plan.typeArene ?? 'neutre');
+  // La tête d'affiche se choisit **en premier** — c'est la plus aboutie de sa spécialité,
+  // et son escorte se compose ensuite autour d'elle. L'ordre inverse laissait l'escorte
+  // épuiser un vivier mince, et la vedette n'avait plus qu'à se doubler elle-même.
+  const vedette = formeAuNiveau(specialite[0] ?? 'chatoyan', plan.niveaux.max);
+  // Un registre unique pour toutes les passes : sans lui, la créature tirée dans la
+  // région pouvait doubler celle tirée dans la spécialité.
+  const dejaLa = new Set<SpeciesId>([vedette]);
+  const escorte = [
+    ...composerEquipe(rng, plan, 2, -1, specialite, dejaLa),
+    ...composerEquipe(rng, plan, 1, -1, undefined, dejaLa),
+  ];
   const champion = { x: centreX, y: 9 };
   contexte.occupees.add(champion.y * REGION_WIDTH + champion.x);
   entites.push({
@@ -548,15 +670,12 @@ const genererArene: Generateur = (contexte, portes) => {
     sprite: 'champion',
     dialogue: 'dialogue.champion',
     dialogueVaincu: 'dialogue.championVaincu',
-    // L'équipe du champion est bâtie à part : elle mélange les biomes et monte plus
-    // haut que tout ce qu'on a croisé jusque-là.
-    equipe: [
-      { species: 'chatoyan', niveau: plan.niveaux.max },
-      { species: 'menhirok', niveau: plan.niveaux.max },
-      { species: 'noctombre', niveau: plan.niveaux.max + 1 },
-      { species: 'solarion', niveau: plan.niveaux.max + 3 },
-    ],
-    recompense: 3000,
+    // Deux créatures de sa spécialité, une piochée dans la région, et sa tête d'affiche.
+    // Une équipe entièrement mono-type se heurtait à deux écueils : les types au vivier
+    // mince alignaient quatre fois la même créature, et ceux au vivier large quatre
+    // bouts de lignée d'affilée. Un champion a une préférence, pas une exclusivité.
+    equipe: [...escorte, { species: vedette, niveau: plan.niveaux.max }],
+    recompense: 800 + 90 * plan.niveaux.max,
     champion: true,
     vision: 6,
     regard: 'sud',
@@ -580,6 +699,58 @@ const genererArene: Generateur = (contexte, portes) => {
   }
 
   return { depart: portes.sud ?? { x: centreX, y: REGION_HEIGHT - 3 }, entites };
+};
+
+/**
+ * Sanctuaire : la clairière d'après la victoire.
+ *
+ * Aucun dresseur, aucun service — seulement des hautes herbes rares et un panneau. C'est
+ * le seul endroit où se montrent les créatures uniques, et donc la seule façon de
+ * terminer le Terradex. Sans lui, son compteur annonçait un total qu'on ne pouvait pas
+ * atteindre.
+ */
+const genererSanctuaire: Generateur = (contexte, portes) => {
+  const { tiles, rng, plan } = contexte;
+  const entites: Entite[] = [];
+  const palette = PALETTES[plan.biome];
+
+  const centreX = Math.floor(REGION_WIDTH / 2);
+  const depart = portes.sud ?? { x: centreX, y: REGION_HEIGHT - 2 };
+
+  // Une allée dallée du seuil jusqu'au cœur, puis des herbes tout autour.
+  const coeur = { x: centreX, y: 12 };
+  creuserCouloir(tiles, rng, depart, coeur, 'chemin');
+  for (let y = coeur.y - 5; y <= coeur.y + 5; y++) {
+    for (let x = coeur.x - 8; x <= coeur.x + 8; x++) {
+      if (!marchable(tiles, x, y)) continue;
+      poser(tiles, x, y, rng.chance(0.45) ? palette.herbe : palette.sol);
+    }
+  }
+
+  const panneau = caseLibre(contexte, { x: depart.x + 2, y: depart.y - 3 });
+  if (panneau) {
+    poser(tiles, panneau.x, panneau.y, 'panneau');
+    entites.push({
+      kind: 'panneau',
+      id: entiteId(plan.index, 'panneau', 0),
+      ...panneau,
+      texte: 'dialogue.sanctuaire',
+    });
+  }
+
+  const soigneuse = caseLibre(contexte, { x: depart.x - 3, y: depart.y - 2 });
+  if (soigneuse) {
+    entites.push({
+      kind: 'service',
+      id: entiteId(plan.index, 'service', 0),
+      ...soigneuse,
+      service: 'soin',
+      sprite: 'soigneuse',
+      dialogue: 'dialogue.soigneuse',
+    });
+  }
+
+  return { depart, entites };
 };
 
 /** Route, bois, grotte : terrain sauvage traversé par un chemin. */
@@ -644,6 +815,11 @@ const genererSauvage: Generateur = (contexte, portes) => {
     });
   }
 
+  // La pierre d'Éveil dort au fond des grottes, loin du chemin.
+  if (plan.role === 'grotte') {
+    poserObjetUnique(contexte, entites, 'pierreEvolution', detour, 90);
+  }
+
   return { depart, entites };
 };
 
@@ -651,6 +827,7 @@ const GENERATEURS: Record<RegionRole, Generateur> = {
   bourg: genererBourg,
   village: genererVillage,
   arene: genererArene,
+  sanctuaire: genererSanctuaire,
   route: genererSauvage,
   bois: genererSauvage,
   grotte: genererSauvage,
@@ -721,6 +898,7 @@ function tenter(seed: number, plan: RegionPlan, tentative: number): Region | nul
     biome: plan.biome,
     nom: plan.nom,
     niveaux: plan.niveaux,
+    typeArene: plan.typeArene,
     width: REGION_WIDTH,
     height: REGION_HEIGHT,
     tiles,
@@ -800,6 +978,7 @@ function regionDeSecours(seed: number, plan: RegionPlan): Region {
     biome: plan.biome,
     nom: plan.nom,
     niveaux: plan.niveaux,
+    typeArene: plan.typeArene,
     width: REGION_WIDTH,
     height: REGION_HEIGHT,
     tiles,

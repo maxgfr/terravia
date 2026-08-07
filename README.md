@@ -8,8 +8,9 @@ work of anyone else.
 
 ## Play
 
-Leave the hamlet with one creature, cross seven regions catching and battling your way
-north, and beat the arena champion.
+Leave the hamlet with one of three creatures, head north catching and battling your way
+through a world laid out by your seed, and beat every arena champion. The last badge
+opens the sanctum, where the creatures that appear nowhere else can finally be caught.
 
 | | |
 |---|---|
@@ -22,10 +23,14 @@ complete translation, not a partial one.
 
 ## What makes it different
 
-**The whole world fits in a seed.** The region topology is fixed — it carries the
-progression: rising difficulty, a shop halfway, the boss at the end. Everything else —
-biome, terrain shape, contents, where every character stands — is derived from your
-game's seed. No two runs look alike, and sharing a seed shares a world.
+**The whole run fits in a seed.** Not just the scenery: the seed decides how long the
+journey is (8 to 12 regions), which places you cross and in what order, how many arenas
+stand in your way and what each champion specialises in, and which three creatures you
+get to choose from. Terrain, contents and every character's position follow. What the
+seed does *not* touch are the invariants that keep a run playable — a hamlet to start
+in, a village to restock at, arenas spaced far enough apart to grow between them, and a
+starting region that never counters the creature you picked. Sharing a seed shares an
+adventure, not a backdrop.
 
 **A save file is a few kilobytes.** Because the world rebuilds itself from the seed, a
 save holds only the seed and your state: position, team, storage, bag, progress. Not a
@@ -39,12 +44,16 @@ have drifted.
 
 ## Content
 
-30 creatures across 12 evolution lines · 12 elemental types with four immunities ·
-53 moves · 16 passive talents · 8 regions · a day/night cycle that changes which
-creatures appear.
+40 creatures across 17 evolution lines · 12 elemental types with four immunities ·
+53 moves · 16 passive talents · 8 to 12 regions per run · two or three arenas · a
+day/night cycle that changes which creatures appear · fishing, once you find the rod.
 
 Each creature carries **genes** rolled at birth and **training points** earned in
 battle, so two specimens of the same species are never interchangeable.
+
+The Terradex can be completed. Every species is catchable somewhere — the three
+one-of-a-kind creatures show themselves only in the sanctum, which opens after the last
+champion falls.
 
 ## Getting started
 
@@ -93,16 +102,28 @@ You can also export a single creature and import it into another game.
 
 ## Tests
 
-220 tests, run in continuous integration before every deploy. The useful ones don't check
-details, they check **invariants**:
+274 tests, run in continuous integration before every deploy. The useful ones don't check
+details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;
+- every generated run has the shape of a playable adventure: a hamlet first, a sanctum
+  last, arenas spaced apart with distinct specialities, no cave as the opening region,
+  levels that never go backwards — checked over 120 seeds;
+- **every starter is viable on its own first route** — none is countered by the local
+  fauna, and none is too frail to trade blows, measured over 30 worlds;
+- no region shows a creature out of proportion with its level, and none shows so few
+  species that it feels repetitive;
+- every species in the Terradex is catchable somewhere, so its counter never promises a
+  total you cannot reach;
+- **the last champion falls in over 90 % of worlds** to a level-appropriate team of six,
+  and still beats one that stayed ten levels behind — measured by simulating the whole
+  trainer battle against the champion the world actually generated;
+- no trainer fields a creature that should have evolved at that level;
+- a battle interrupted by closing the tab comes back exactly as it was;
 - every battle terminates, whichever two creatures are involved;
 - an exported then reimported game returns an identical state, and the world rebuilds
   byte for byte from the seed;
-- every character in the game's text exists in the font, in both languages;
-- a starter wins more than 60 % of its battles on the first route, and the champion is a
-  genuine wall at level 12 while remaining beatable at 42.
+- every character in the game's text exists in the font, in both languages.
 
 A smoke test drives the screens against a simulated canvas — start-up, starter choice,
 walking, menus, a full battle — and measures every string drawn, so text that runs

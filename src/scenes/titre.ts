@@ -7,7 +7,7 @@
 
 import { makeSeedText } from '../core/rng.ts';
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/viewport.ts';
-import { STARTER_IDS, SPECIES } from '../data/species.ts';
+import { STARTER_IDS, SPECIES, type SpeciesId } from '../data/species.ts';
 import { creerCreature } from '../game/creature.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import { accueillirCreature, creerPartie, poserDrapeau, prochainIdentifiant } from '../game/state.ts';
@@ -15,9 +15,8 @@ import { chargerDepuisTexte } from '../save/serialize.ts';
 import { choisirFichier, lireSauvegardeLocale } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
 import type { CleTexte } from '../i18n/index.ts';
-import { SceneOverworld } from './overworld.ts';
 import { SceneAide } from './aide.ts';
-import { traiterImport } from './menu.ts';
+import { entrerDansLaPartie, traiterImport } from './partie.ts';
 
 type Ecran = 'accueil' | 'seed' | 'starter';
 
@@ -98,7 +97,8 @@ export class SceneTitre implements Scene {
       return;
     }
     jeu.chargerPartie(resultat.valeur.state);
-    jeu.remplacer(new SceneOverworld());
+    // `entrerDansLaPartie` rouvre le combat que la sauvegarde portait, s'il y en avait un.
+    entrerDansLaPartie(jeu);
   }
 
   private async importer(jeu: Jeu): Promise<void> {
@@ -124,14 +124,20 @@ export class SceneTitre implements Scene {
     this.selection = 0;
   }
 
+  /** Le trio de cette seed. Le monde en décide, l'écran ne fait que le montrer. */
+  private starters(jeu: Jeu): readonly SpeciesId[] {
+    return jeu.monde.starters.length === 3 ? jeu.monde.starters : STARTER_IDS;
+  }
+
   private choixStarter(jeu: Jeu): void {
-    if (jeu.entrees.pressee('est')) this.selection = (this.selection + 1) % STARTER_IDS.length;
+    const starters = this.starters(jeu);
+    if (jeu.entrees.pressee('est')) this.selection = (this.selection + 1) % starters.length;
     if (jeu.entrees.pressee('ouest')) {
-      this.selection = (this.selection - 1 + STARTER_IDS.length) % STARTER_IDS.length;
+      this.selection = (this.selection - 1 + starters.length) % starters.length;
     }
     if (!jeu.entrees.pressee('valider')) return;
 
-    const choisi = STARTER_IDS[this.selection]!;
+    const choisi = starters[this.selection]!;
     void jeu.dialogue
       .demander(jeu.t('depart.confirmer', { nom: jeu.nomEspece(choisi) }), [
         jeu.t('depart.oui'),
@@ -154,7 +160,7 @@ export class SceneTitre implements Scene {
         jeu.state.joueur.y = depart.y;
         jeu.state.joueur.refuge = { regionIndex: 0, x: depart.x, y: depart.y };
         jeu.sauvegarderLocalement();
-        jeu.remplacer(new SceneOverworld());
+        entrerDansLaPartie(jeu);
       });
   }
 
@@ -166,7 +172,7 @@ export class SceneTitre implements Scene {
 
     // Bandeau de créatures en fond : elles défilent lentement, sans distraire.
     const defilement = (this.temps * 8) % (VIRTUAL_WIDTH + 64);
-    STARTER_IDS.forEach((species, index) => {
+    this.starters(jeu).forEach((species, index) => {
       peintre.creature(species, 'face', VIRTUAL_WIDTH - defilement + index * 90, 118, {
         echelle: 0.8,
         opacite: 0.22,
@@ -255,7 +261,7 @@ export class SceneTitre implements Scene {
       ombre: true,
     });
 
-    STARTER_IDS.forEach((species, index) => {
+    this.starters(jeu).forEach((species, index) => {
       const x = 24 + index * 96;
       const choisi = index === this.selection;
       peintre.creature(species, 'face', x, 70, { echelle: 1, opacite: choisi ? 1 : 0.55 });

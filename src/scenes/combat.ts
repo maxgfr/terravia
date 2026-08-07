@@ -8,9 +8,9 @@
  */
 
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/viewport.ts';
-import { MOVES } from '../data/moves.ts';
+import { MOVES, type MoveId } from '../data/moves.ts';
 import { SPECIES } from '../data/species.ts';
-import { STAT_NAMES } from '../data/stats.ts';
+import { STAT_NAMES, STATUS_NAMES } from '../data/stats.ts';
 import { ITEMS } from '../data/items.ts';
 import { choisirAttaque, choisirRemplacant, type NiveauIA } from '../battle/ai.ts';
 import { creerCombattant } from '../battle/damage.ts';
@@ -23,6 +23,7 @@ import {
   type BattleState,
 } from '../battle/engine.ts';
 import {
+  apprendreAttaque,
   evoluer,
   experienceGagnee,
   dressageGagne,
@@ -33,18 +34,22 @@ import {
 import type { Jeu, Scene } from '../game/jeu.ts';
 import {
   accueillirCreature,
+  avancerTemps,
   distribuerDressage,
   donnerBadge,
   equipeDebout,
   marquerDresseurVaincu,
   marquerVu,
+  poserDrapeau,
   prochainIdentifiant,
   retirerObjet,
   sacTrie,
   soignerEquipe,
+  type CombatEnCours,
 } from '../game/state.ts';
 import { experienceForLevel } from '../data/stats.ts';
 import type { Dresseur } from '../world/entities.ts';
+import { badgeDe, toutesLesArenesVaincues } from '../world/worldgen.ts';
 import { COULEURS } from '../ui/draw.ts';
 
 export interface Rencontre {
@@ -55,6 +60,9 @@ export interface Rencontre {
 
 type Menu = 'racine' | 'attaques' | 'sac' | 'equipe';
 
+/** Lignes affichées d'un coup dans les menus déroulants du combat. */
+const LIGNES_VISIBLES = 3;
+
 export class SceneCombat implements Scene {
   readonly nom = 'combat';
   readonly opaque = true;
@@ -64,19 +72,73 @@ export class SceneCombat implements Scene {
   private indexAdverse = 0;
   private menu: Menu = 'racine';
   private selection = 0;
+  private defilement = 0;
   private attente = false;
   private tremblement = 0;
 
   private readonly rencontre: Rencontre;
+  private readonly reprise: CombatEnCours | null;
 
-  constructor(rencontre: Rencontre) {
+  /**
+   * @param reprise Combat retrouvé dans la sauvegarde. Il court-circuite l'ouverture :
+   *   ni répliques d'entrée, ni talents à déclencher — tout cela a déjà eu lieu avant
+   *   que l'onglet ne se ferme.
+   */
+  constructor(rencontre: Rencontre, reprise: CombatEnCours | null = null) {
     this.rencontre = rencontre;
+    this.reprise = reprise;
   }
 
   entrer(jeu: Jeu): void {
-    this.indexJoueur = jeu.state.equipe.findIndex((membre) => membre.pv > 0);
-    if (this.indexJoueur < 0) this.indexJoueur = 0;
-    this.demarrer(jeu);
+    if (this.reprise) this.reprendre(jeu, this.reprise);
+    else {
+      this.indexJoueur = jeu.state.equipe.findIndex((membre) => membre.pv > 0);
+      if (this.indexJoueur < 0) this.indexJoueur = 0;
+      this.demarrer(jeu);
+    }
+    // Le combat devient enregistrable dès la première trame : fermer l'onglet à
+    // l'instant même le retrouvera.
+    this.enregistrer(jeu);
+  }
+
+  /**
+   * Le combat est retiré de la partie en sortant, quelle qu'en soit l'issue — fuite,
+   * capture, victoire, défaite. Point de sortie unique, donc rien à oublier.
+   */
+  quitter(jeu: Jeu): void {
+    jeu.state.combat = null;
+    jeu.sauvegarderLocalement();
+  }
+
+  /** Dépose l'échange en cours dans la partie, sans l'écrire. */
+  avantSauvegarde(jeu: Jeu): void {
+    if (this.state.issue === null) this.enregistrer(jeu, false);
+  }
+
+  private enregistrer(jeu: Jeu, ecrire = true): void {
+    jeu.state.combat = {
+      genre: this.rencontre.genre,
+      adversaires: this.rencontre.adversaires,
+      dresseurId: this.rencontre.dresseur?.id ?? null,
+      indexJoueur: this.indexJoueur,
+      indexAdverse: this.indexAdverse,
+      etagesJoueur: { ...this.state.joueur.etages },
+      etagesAdverse: { ...this.state.adversaire.etages },
+      tour: this.state.tour,
+      tentativesFuite: this.state.tentativesFuite,
+    };
+    if (ecrire) jeu.sauvegarderLocalement();
+  }
+
+  private reprendre(jeu: Jeu, reprise: CombatEnCours): void {
+    this.indexJoueur = reprise.indexJoueur;
+    this.indexAdverse = reprise.indexAdverse;
+    this.state = creerCombat(jeu.state.equipe[this.indexJoueur]!, this.adversaire, reprise.genre);
+    Object.assign(this.state.joueur.etages, reprise.etagesJoueur);
+    Object.assign(this.state.adversaire.etages, reprise.etagesAdverse);
+    this.state.tour = reprise.tour;
+    this.state.tentativesFuite = reprise.tentativesFuite;
+    jeu.dialogue.dire(jeu.t('combat.reprise', { nom: jeu.nomCreature(this.adversaire) }));
   }
 
   private get adversaire(): CreatureInstance {
@@ -120,6 +182,9 @@ export class SceneCombat implements Scene {
   // ── Boucle ─────────────────────────────────────────────────────────────────
 
   mettreAJour(jeu: Jeu, step: number): void {
+    // L'horloge ne tournait que dans le monde parcouru : un long combat la figeait, et
+    // le temps de jeu affiché sous-estimait d'autant. Combattre, c'est jouer.
+    avancerTemps(jeu.state, step * 1000);
     if (this.tremblement > 0) this.tremblement = Math.max(0, this.tremblement - step * 4);
 
     if (jeu.dialogue.actif) {
@@ -152,31 +217,30 @@ export class SceneCombat implements Scene {
       if (jeu.entrees.pressee('est')) this.selection = (this.selection + 1) % nombre;
       if (jeu.entrees.pressee('ouest')) this.selection = (this.selection - 1 + nombre) % nombre;
     }
+    // Seules les listes en colonne défilent ; les grilles à deux colonnes tiennent en entier.
+    if (colonnes === 1) this.defilement = fenetre(this.selection, nombre);
+  }
+
+  private allerAu(menu: Menu): void {
+    this.menu = menu;
+    this.selection = 0;
+    this.defilement = 0;
   }
 
   private menuRacine(jeu: Jeu): void {
     this.naviguer(jeu, 4, 2);
     if (!jeu.entrees.pressee('valider')) return;
-    if (this.selection === 0) {
-      this.menu = 'attaques';
-      this.selection = 0;
-    } else if (this.selection === 1) {
-      this.menu = 'sac';
-      this.selection = 0;
-    } else if (this.selection === 2) {
-      this.menu = 'equipe';
-      this.selection = 0;
-    } else {
-      this.agir(jeu, { kind: 'fuite' });
-    }
+    if (this.selection === 0) this.allerAu('attaques');
+    else if (this.selection === 1) this.allerAu('sac');
+    else if (this.selection === 2) this.allerAu('equipe');
+    else this.agir(jeu, { kind: 'fuite' });
   }
 
   private menuAttaques(jeu: Jeu): void {
     const attaques = this.creatureJoueur.moves;
     this.naviguer(jeu, attaques.length, 2);
     if (jeu.entrees.pressee('annuler')) {
-      this.menu = 'racine';
-      this.selection = 0;
+      this.allerAu('racine');
       return;
     }
     if (!jeu.entrees.pressee('valider')) return;
@@ -191,8 +255,7 @@ export class SceneCombat implements Scene {
     const objets = sacTrie(jeu.state).filter((entree) => ITEMS[entree.item].usage !== 'monde');
     this.naviguer(jeu, objets.length);
     if (jeu.entrees.pressee('annuler') || objets.length === 0) {
-      this.menu = 'racine';
-      this.selection = 0;
+      this.allerAu('racine');
       return;
     }
     if (!jeu.entrees.pressee('valider')) return;
@@ -201,7 +264,12 @@ export class SceneCombat implements Scene {
     if (!choisi) return;
     const effet = ITEMS[choisi.item].effet;
     if (effet.kind === 'capture') {
-      if (this.rencontre.genre === 'dresseur') return;
+      // On ne capture pas la créature d'un dresseur. Le refus se dit : sans un mot, le
+      // joueur croit que sa validation n'a pas été prise.
+      if (this.rencontre.genre === 'dresseur') {
+        jeu.dialogue.dire(jeu.t('combat.captureImpossible'));
+        return;
+      }
       retirerObjet(jeu.state, choisi.item);
       this.agir(jeu, { kind: 'capture', item: choisi.item });
     } else {
@@ -214,14 +282,18 @@ export class SceneCombat implements Scene {
     const equipe = jeu.state.equipe;
     this.naviguer(jeu, equipe.length);
     if (jeu.entrees.pressee('annuler')) {
-      this.menu = 'racine';
-      this.selection = 0;
+      this.allerAu('racine');
       return;
     }
     if (!jeu.entrees.pressee('valider')) return;
 
     const choisi = equipe[this.selection];
-    if (!choisi || choisi.pv <= 0 || this.selection === this.indexJoueur) {
+    if (!choisi) return;
+    if (this.selection === this.indexJoueur) {
+      jeu.dialogue.dire(jeu.t('combat.dejaEnJeu', { nom: jeu.nomCreature(choisi) }));
+      return;
+    }
+    if (choisi.pv <= 0) {
       jeu.dialogue.dire(jeu.t('combat.pasDeFuite'));
       return;
     }
@@ -234,8 +306,7 @@ export class SceneCombat implements Scene {
   // ── Résolution ─────────────────────────────────────────────────────────────
 
   private agir(jeu: Jeu, action: Action): void {
-    this.menu = 'racine';
-    this.selection = 0;
+    this.allerAu('racine');
     const choixAdverse = choisirAttaque(this.state.adversaire, this.state.joueur, this.niveauIA, jeu.rng);
     const evenements = resoudreTour(this.state, action, choixAdverse, jeu.rng);
     this.jouer(jeu, evenements);
@@ -303,6 +374,9 @@ export class SceneCombat implements Scene {
   private apresTour(jeu: Jeu): void {
     switch (this.state.issue) {
       case null:
+        // La main revient au joueur : c'est le point de reprise naturel, et donc le bon
+        // moment pour figer le combat sur le disque.
+        this.enregistrer(jeu);
         return;
       case 'fuite':
         jeu.retirer();
@@ -323,7 +397,7 @@ export class SceneCombat implements Scene {
     const capturee = this.adversaire;
     const nouveau: CreatureInstance = { ...capturee, uid: prochainIdentifiant(jeu.state) };
     accueillirCreature(jeu.state, nouveau);
-    jeu.sauvegarderLocalement();
+    // L'écriture a lieu dans `quitter`, une fois le combat retiré de la partie.
     jeu.dialogue.puis(() => jeu.retirer());
   }
 
@@ -336,16 +410,31 @@ export class SceneCombat implements Scene {
     const gain = gagnerExperience(gagnante, xp);
     jeu.dialogue.dire(jeu.t('combat.gainXp', { nom: jeu.nomCreature(gagnante), xp }));
 
+    // Le dressage se gagnait en silence : le joueur n'avait aucun moyen de savoir que
+    // ses créatures se renforçaient, ni dans quelle direction.
     const dressage = dressageGagne(vaincu);
     distribuerDressage(jeu.state, dressage.stat, dressage.points);
+    jeu.dialogue.dire(
+      jeu.t('combat.dressage', {
+        nom: jeu.nomCreature(gagnante),
+        points: dressage.points,
+        stat: STAT_NAMES[dressage.stat][jeu.langue],
+      }),
+    );
 
     if (gain.niveauApres > avant) {
       jeu.dialogue.dire(jeu.t('combat.niveau', { nom: jeu.nomCreature(gagnante), niveau: gain.niveauApres }));
     }
+
+    // Ce qui rentre est appris tout de suite ; le reste attend que le joueur désigne
+    // l'attaque à oublier. Auparavant, une créature à quatre attaques n'en apprenait
+    // plus jamais aucune, en silence.
+    const aChoisir: MoveId[] = [];
     for (const attaque of gain.nouvellesAttaques) {
-      if (gagnante.moves.length < 4) {
-        gagnante.moves.push({ id: attaque, pp: MOVES[attaque].pp });
+      if (apprendreAttaque(gagnante, attaque, null)) {
         jeu.dialogue.dire(jeu.t('combat.apprend', { nom: jeu.nomCreature(gagnante), attaque: jeu.nomAttaque(attaque) }));
+      } else if (!gagnante.moves.some((slot) => slot.id === attaque)) {
+        aChoisir.push(attaque);
       }
     }
 
@@ -369,13 +458,15 @@ export class SceneCombat implements Scene {
       this.state.adversaire = creerCombattant(this.adversaire);
       this.state.issue = null;
       marquerVu(jeu.state, this.adversaire.speciesId);
-      jeu.dialogue.dire(
-        jeu.t('combat.adversaireEnvoie', {
-          dresseur: this.nomDresseur(jeu),
-          nom: jeu.nomCreature(this.adversaire),
-        }),
-      );
-      this.jouer(jeu, evenementsEntree(this.state, 'adversaire'));
+      this.apprendreEnsuite(jeu, gagnante, aChoisir, () => {
+        jeu.dialogue.dire(
+          jeu.t('combat.adversaireEnvoie', {
+            dresseur: this.nomDresseur(jeu),
+            nom: jeu.nomCreature(this.adversaire),
+          }),
+        );
+        this.jouer(jeu, evenementsEntree(this.state, 'adversaire'));
+      });
       return;
     }
 
@@ -385,11 +476,61 @@ export class SceneCombat implements Scene {
       jeu.state.joueur.pieces += dresseur.recompense;
       jeu.dialogue.dire(jeu.t('combat.recompense', { pieces: dresseur.recompense }));
       jeu.dialogue.dire(jeu.dialogueDe(dresseur.dialogueVaincu));
-      if (dresseur.champion) donnerBadge(jeu.state, 'arene');
+
+      // Le badge porte la spécialité de l'arène, lue sur la région courante. C'est lui
+      // qui ouvre la route vers le nord, et c'est ce qui fait d'une arène un palier.
+      if (dresseur.champion) {
+        const type = jeu.monde.region(jeu.state.joueur.regionIndex).typeArene;
+        if (type) {
+          donnerBadge(jeu.state, badgeDe(type));
+          jeu.dialogue.dire(jeu.t('combat.badge', { type: jeu.nomType(type) }));
+          // Le dernier insigne clôt l'aventure. On pose un drapeau plutôt que d'empiler
+          // l'écran de fin ici : il doit s'ouvrir une fois le combat refermé, sur le
+          // monde, et non par-dessus une scène qu'on est en train de quitter.
+          if (toutesLesArenesVaincues(jeu.monde.plans, jeu.state.progression.badges)) {
+            poserDrapeau(jeu.state, 'victoire');
+          }
+        }
+      }
     }
 
-    jeu.sauvegarderLocalement();
-    jeu.dialogue.puis(() => jeu.retirer());
+    this.apprendreEnsuite(jeu, gagnante, aChoisir, () => jeu.retirer());
+  }
+
+  /**
+   * Fait choisir l'attaque à oublier, une nouvelle attaque après l'autre, puis enchaîne.
+   *
+   * La récursion passe par le `.then` de la question plutôt que par un `puis` global :
+   * c'est ce qui garantit que le remplacement est appliqué avant la suite.
+   */
+  private apprendreEnsuite(
+    jeu: Jeu,
+    creature: CreatureInstance,
+    aChoisir: MoveId[],
+    apres: () => void,
+  ): void {
+    const attaque = aChoisir.shift();
+    if (!attaque) {
+      jeu.dialogue.puis(apres);
+      return;
+    }
+
+    const nom = jeu.nomCreature(creature);
+    const options = [...creature.moves.map((slot) => jeu.nomAttaque(slot.id)), jeu.t('combat.renoncer')];
+    void jeu.dialogue
+      .demander(jeu.t('combat.oublier', { nom, attaque: jeu.nomAttaque(attaque) }), options)
+      .then((choix) => {
+        const oubliee = creature.moves[choix]?.id;
+        if (oubliee !== undefined && apprendreAttaque(creature, attaque, choix)) {
+          jeu.dialogue.dire(
+            jeu.t('combat.oublie', { nom, ancienne: jeu.nomAttaque(oubliee) }),
+            jeu.t('combat.apprend', { nom, attaque: jeu.nomAttaque(attaque) }),
+          );
+        } else {
+          jeu.dialogue.dire(jeu.t('combat.renonce', { nom, attaque: jeu.nomAttaque(attaque) }));
+        }
+        this.apprendreEnsuite(jeu, creature, aChoisir, apres);
+      });
   }
 
   private creatureVaincue(jeu: Jeu): void {
@@ -412,7 +553,6 @@ export class SceneCombat implements Scene {
       jeu.state.joueur.regionIndex = refuge.regionIndex;
       jeu.state.joueur.x = refuge.x;
       jeu.state.joueur.y = refuge.y;
-      jeu.sauvegarderLocalement();
       jeu.retirer();
     });
   }
@@ -446,8 +586,12 @@ export class SceneCombat implements Scene {
     peintre.texte(jeu.t('fiche.pv'), x + 8, y + 18, { couleur: COULEURS.texteAttenue });
     peintre.barrePv(x + 26, y + 19, 88, ratio);
 
+    // L'altération se lit à la jauge : c'est la seule place où le joueur peut vérifier
+    // qu'il est toujours empoisonné avant de choisir son tour.
     if (creature.statut) {
-      peintre.texte(STAT_NAMES.pv.court, x + 8, y + 28, { couleur: COULEURS.texteAttenue });
+      peintre.texte(STATUS_NAMES[creature.statut].court, x + 8, y + 28, {
+        couleur: COULEURS.texteAccent,
+      });
     }
     if (avecXp) {
       const species = SPECIES[creature.speciesId];
@@ -485,28 +629,47 @@ export class SceneCombat implements Scene {
       return;
     }
 
+    // Le panneau ne tient que trois lignes, mais la navigation parcourt toute la liste :
+    // sans fenêtre glissante, la quatrième entrée se sélectionnait sans jamais s'afficher.
     if (this.menu === 'sac') {
       const objets = sacTrie(jeu.state).filter((entree) => ITEMS[entree.item].usage !== 'monde');
       if (objets.length === 0) {
         peintre.texte(jeu.t('menu.vide'), 20, y + 12, { couleur: COULEURS.texteAttenue });
         return;
       }
-      objets.slice(0, 3).forEach((entree, index) => {
-        const libelle = `${jeu.nomObjet(entree.item)} × ${entree.nombre}`;
-        this.option(jeu, libelle, 20, y + 8 + index * 12, index === this.selection);
-      });
+      this.listeDeroulante(jeu, objets, y, (entree) => `${jeu.nomObjet(entree.item)} × ${entree.nombre}`);
       return;
     }
 
-    jeu.state.equipe.slice(0, 3).forEach((membre, index) => {
-      const libelle = `${jeu.nomCreature(membre)}  ${membre.pv}/${pvMax(membre)}`;
-      this.option(jeu, libelle, 20, y + 8 + index * 12, index === this.selection);
+    this.listeDeroulante(
+      jeu,
+      jeu.state.equipe,
+      y,
+      (membre) => `${jeu.nomCreature(membre)}  ${membre.pv}/${pvMax(membre)}`,
+    );
+  }
+
+  /** Dessine la tranche visible d'une liste, avec un repère quand elle déborde. */
+  private listeDeroulante<T>(jeu: Jeu, entrees: readonly T[], y: number, libelle: (entree: T) => string): void {
+    entrees.slice(this.defilement, this.defilement + LIGNES_VISIBLES).forEach((entree, ligne) => {
+      const index = this.defilement + ligne;
+      this.option(jeu, libelle(entree), 20, y + 8 + ligne * 12, index === this.selection);
     });
+    if (entrees.length > LIGNES_VISIBLES) {
+      jeu.peintre.texteDroite(`${this.selection + 1}/${entrees.length}`, VIRTUAL_WIDTH - 16, y + 32, {
+        couleur: COULEURS.texteAttenue,
+      });
+    }
   }
 
   private option(jeu: Jeu, libelle: string, x: number, y: number, choisi: boolean): void {
     if (choisi) jeu.peintre.texte('▶', x - 10, y, { couleur: COULEURS.selection });
     jeu.peintre.texte(libelle, x, y, { couleur: choisi ? COULEURS.texteAccent : COULEURS.texte });
   }
+}
 
+/** Premier index visible d'une liste déroulante gardant la sélection dans le cadre. */
+function fenetre(selection: number, nombre: number): number {
+  if (nombre <= LIGNES_VISIBLES) return 0;
+  return Math.max(0, Math.min(selection - LIGNES_VISIBLES + 1, nombre - LIGNES_VISIBLES));
 }

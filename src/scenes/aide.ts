@@ -1,7 +1,7 @@
 /**
  * « Comment jouer » : l'onboarding consultable à tout moment.
  *
- * Six pages courtes plutôt qu'un mur de texte, et surtout **une illustration par page**
+ * Neuf pages courtes plutôt qu'un mur de texte, et surtout **une illustration par page**
  * tirée des vraies planches du jeu : la page sur les hautes herbes montre la tuile qui
  * déclenche les rencontres, celle sur la capture montre le prisme. Décrire un élément
  * qu'on n'a jamais vu ne sert à rien ; le montrer suffit souvent.
@@ -24,10 +24,11 @@ const PAGES: readonly Page[] = [
     titre: 'aide.but.titre',
     texte: 'aide.but.texte',
     illustration: (jeu, centreX, y) => {
-      // Le trajet : bourg → routes → arène, avec un jalon par région.
+      // Le trajet, jalon par région. La longueur se lit sur le monde : elle dépend de la
+      // seed depuis que le parcours est généré, et huit jalons en dur auraient menti.
       const peintre = jeu.peintre;
-      const total = 8;
-      const pas = 26;
+      const total = jeu.monde.plans.length;
+      const pas = Math.floor(200 / total);
       const depart = centreX - ((total - 1) * pas) / 2;
       for (let index = 0; index < total; index++) {
         const x = depart + index * pas;
@@ -87,6 +88,45 @@ const PAGES: readonly Page[] = [
     },
   },
   {
+    titre: 'aide.equipe.titre',
+    texte: 'aide.equipe.texte',
+    illustration: (jeu, centreX, y) => {
+      // Six emplacements d'équipe à gauche, la réserve à droite : la comparaison dit
+      // l'essentiel — rien n'est perdu au-delà du sixième.
+      const peintre = jeu.peintre;
+      for (let index = 0; index < 6; index++) {
+        peintre.remplir(centreX - 74 + (index % 3) * 14, y + Math.floor(index / 3) * 14, 11, 11, COULEURS.pvHaut);
+      }
+      peintre.texte('▶', centreX - 22, y + 7, { couleur: COULEURS.texteAttenue });
+      for (let index = 0; index < 8; index++) {
+        peintre.remplir(centreX - 2 + (index % 4) * 14, y + Math.floor(index / 4) * 14, 11, 11, COULEURS.pvFond);
+      }
+    },
+  },
+  {
+    titre: 'aide.arenes.titre',
+    texte: 'aide.arenes.texte',
+    illustration: (jeu, centreX, y) => {
+      const peintre = jeu.peintre;
+      const taille = peintre.tailleInsigne;
+      (['flamme', 'onde', 'sylve'] as const).forEach((type, index) => {
+        peintre.insigne(type, centreX - 26 + index * (taille + 8), y);
+      });
+      peintre.personnage('champion', 'sud', 0, centreX + 40, y - 4);
+    },
+  },
+  {
+    titre: 'aide.peche.titre',
+    texte: 'aide.peche.texte',
+    illustration: (jeu, centreX, y) => {
+      const peintre = jeu.peintre;
+      peintre.tuile('eau', 0, centreX - 58, y - 2);
+      peintre.icone('canne', centreX - 30, y);
+      peintre.icone('pierreEvolution', centreX - 4, y);
+      peintre.icone('carte', centreX + 22, y);
+    },
+  },
+  {
     titre: 'aide.sauvegarde.titre',
     texte: 'aide.sauvegarde.texte',
     illustration: (jeu, centreX, y) => {
@@ -94,6 +134,9 @@ const PAGES: readonly Page[] = [
     },
   },
 ];
+
+/** Nombre de pages d’aide. Exporté pour que les tests ne le réécrivent pas en dur. */
+export const PAGES_AIDE = PAGES.length;
 
 export class SceneAide implements Scene {
   readonly nom = 'aide';

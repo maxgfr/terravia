@@ -10,12 +10,19 @@
  * commencer une partie, marcher, ouvrir les menus et combattre sans que rien ne casse.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Assets } from '../src/core/assets.ts';
 import type { ActionJeu, Entrees } from '../src/core/input.ts';
 import { Jeu } from '../src/game/jeu.ts';
 import { creerCreature } from '../src/game/creature.ts';
-import { accueillirCreature, creerPartie, prochainIdentifiant } from '../src/game/state.ts';
+import {
+  accueillirCreature,
+  creerPartie,
+  donnerBadge,
+  poserDrapeau,
+  prochainIdentifiant,
+  typesDesBadges,
+} from '../src/game/state.ts';
 import { makeRng } from '../src/core/rng.ts';
 import { Peintre } from '../src/ui/draw.ts';
 import { SceneTitre } from '../src/scenes/titre.ts';
@@ -23,17 +30,22 @@ import { SceneOverworld } from '../src/scenes/overworld.ts';
 import { SceneMenu } from '../src/scenes/menu.ts';
 import { SceneCombat } from '../src/scenes/combat.ts';
 import { CHARACTER_IDS } from '../src/world/characterIds.ts';
-import { ELEMENT_TYPES } from '../src/data/types.ts';
+import { ELEMENT_TYPES, type ElementType } from '../src/data/types.ts';
 import { ITEM_IDS } from '../src/data/items.ts';
-import { SPECIES_IDS } from '../src/data/species.ts';
+import { SPECIES, SPECIES_IDS } from '../src/data/species.ts';
+import { experienceForLevel } from '../src/data/stats.ts';
 import { TILE_IDS } from '../src/world/tiles.ts';
-import { STARTER_IDS } from '../src/data/species.ts';
-import { creerMonde } from '../src/world/worldgen.ts';
+
+import { badgeDe, creerMonde, toutesLesArenesVaincues } from '../src/world/worldgen.ts';
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../src/core/viewport.ts';
-import { SceneAide } from '../src/scenes/aide.ts';
+import { PAGES_AIDE, SceneAide } from '../src/scenes/aide.ts';
 import { SceneParametres } from '../src/scenes/parametres.ts';
 import { SceneCarte } from '../src/scenes/carte.ts';
+import { SceneFin } from '../src/scenes/fin.ts';
 import { LANGUES } from '../src/i18n/index.ts';
+import { entrerDansLaPartie } from '../src/scenes/partie.ts';
+import { chargerDepuisTexte, exporterPartie } from '../src/save/serialize.ts';
+import { lireSauvegardeLocale } from '../src/save/storage.ts';
 
 /** Compte les appels de dessin : un écran qui ne dessine rien est un écran noir. */
 let appelsDessin = 0;
@@ -78,6 +90,7 @@ function assetsSimules(): Assets {
     cadre: { naturalWidth: 24, naturalHeight: 24 } as unknown as HTMLImageElement,
     plaques: { image, width: 34, height: 11, order: [...ELEMENT_TYPES] },
     icones: { image, size: 16, order: [...ITEM_IDS] },
+    insignes: { image, size: 12, order: [...ELEMENT_TYPES] },
     personnages: {
       image,
       width: 16,
@@ -140,6 +153,8 @@ interface Debordement {
 }
 
 let debordements: Debordement[] = [];
+/** Tout ce qui a été écrit à l'écran pendant la trame : c'est là qu'on lit l'interface. */
+let textesDessines: string[] = [];
 
 /**
  * Remplace `texte()` par une version qui mesure avant de dessiner.
@@ -156,6 +171,7 @@ function surveillerTexte(peintre: Peintre): void {
     if (x < 0 || droite > VIRTUAL_WIDTH || y < 0 || bas > VIRTUAL_HEIGHT) {
       debordements.push({ texte: contenu, gauche: x, droite });
     }
+    textesDessines.push(contenu);
     original(contenu, x, y, options);
   };
 }
@@ -183,6 +199,7 @@ function creerBanc(langue: 'fr' | 'en' = 'fr'): Banc {
   const peintre = new Peintre(contexteSimule(), assetsSimules());
   surveillerTexte(peintre);
   debordements = [];
+  textesDessines = [];
   const jeu = new Jeu(peintre, entrees, creerPartie('brume-3f7a', langue), 1234);
 
   const trame = (): void => {
@@ -209,12 +226,22 @@ function creerBanc(langue: 'fr' | 'en' = 'fr'): Banc {
   };
 }
 
+/** Stockage local simulé : sans lui, toute sauvegarde tombe dans son `catch` silencieux. */
+const stockage = new Map<string, string>();
+
 beforeAll(() => {
   // `creerTeinturier` fabrique un canvas hors écran ; on lui en fournit un factice.
   (globalThis as Record<string, unknown>).document = {
     createElement: () => ({ width: 0, height: 0, getContext: () => contexteSimule() }),
   };
+  (globalThis as Record<string, unknown>).localStorage = {
+    getItem: (cle: string) => stockage.get(cle) ?? null,
+    setItem: (cle: string, valeur: string) => void stockage.set(cle, valeur),
+    removeItem: (cle: string) => void stockage.delete(cle),
+  };
 });
+
+beforeEach(() => stockage.clear());
 
 describe('écran-titre', () => {
   it('démarre et dessine quelque chose', () => {
@@ -239,7 +266,9 @@ describe('écran-titre', () => {
 
     expect(banc.jeu.sommet?.nom).toBe('overworld');
     expect(banc.jeu.state.equipe).toHaveLength(1);
-    expect(banc.jeu.state.equipe[0]!.speciesId).toBe(STARTER_IDS[0]);
+    // Le trio proposé dépend de la seed : on vérifie qu'on est reparti avec l'un des
+    // trois de ce monde-là, pas avec une espèce écrite d'avance.
+    expect(banc.jeu.monde.starters).toContain(banc.jeu.state.equipe[0]!.speciesId);
     // Le joueur est posé sur le point de départ de la région, pas à l'origine.
     expect(banc.jeu.state.joueur.x).toBeGreaterThan(0);
   });
@@ -399,7 +428,7 @@ describe('aucun texte ne sort du cadre', () => {
     for (const langue of LANGUES) {
       const banc = creerBanc(langue);
       banc.jeu.pousser(new SceneAide());
-      for (let page = 0; page < 6; page++) {
+      for (let page = 0; page < PAGES_AIDE; page++) {
         banc.trame();
         await banc.agir('est', 1);
       }
@@ -443,11 +472,54 @@ describe('réglages', () => {
   it('ouvre « comment jouer » puis revient aux réglages', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneParametres());
+    // Sans équipe, les entrées sont : langue, importer, comment jouer, retour.
+    await banc.agir('sud', 2);
     await banc.agir('sud', 2);
     await banc.agir('valider', 2);
     expect(banc.jeu.sommet?.nom).toBe('aide');
     await banc.agir('annuler', 2);
     expect(banc.jeu.sommet?.nom).toBe('parametres');
+  });
+
+  it('n’offre l’export qu’avec une partie en cours', () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneParametres());
+
+    // Écran-titre : l'état est une partie neuve sans créature, rien à exporter.
+    textesDessines = [];
+    banc.trame();
+    expect(textesDessines).not.toContain(banc.jeu.t('sauvegarde.exporter'));
+    // L'import, lui, reste offert : c'est justement de là qu'on en a besoin.
+    expect(textesDessines).toContain(banc.jeu.t('sauvegarde.importer'));
+
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(51), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 5,
+        origine: 'brume-3f7a',
+      }),
+    );
+    textesDessines = [];
+    banc.trame();
+    expect(textesDessines).toContain(banc.jeu.t('sauvegarde.exporter'));
+  });
+
+  it('exporte un document relisible depuis n’importe quel écran', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(52), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 5,
+        origine: 'brume-3f7a',
+      }),
+    );
+    const document = banc.jeu.documentDePartie();
+    const resultat = chargerDepuisTexte(JSON.stringify(document));
+    expect(resultat.ok).toBe(true);
   });
 
   it('ne s’empile jamais deux fois', () => {
@@ -464,14 +536,14 @@ describe('aide', () => {
   it('se ferme après la dernière page plutôt que de boucler', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneAide());
-    for (let page = 0; page < 6; page++) await banc.agir('valider', 1);
+    for (let page = 0; page < PAGES_AIDE; page++) await banc.agir('valider', 1);
     expect(banc.jeu.sommet?.nom).not.toBe('aide');
   });
 
   it('dessine chacune de ses pages', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneAide());
-    for (let page = 0; page < 6; page++) {
+    for (let page = 0; page < PAGES_AIDE; page++) {
       appelsDessin = 0;
       banc.trame();
       expect(appelsDessin, `page ${page}`).toBeGreaterThan(20);
@@ -558,6 +630,51 @@ describe('combat', () => {
     expect(banc.jeu.state.progression.terradexVus).toContain('plumelle');
   });
 
+  /**
+   * Déroule les répliques d'ouverture jusqu'au menu d'actions.
+   *
+   * On presse « annuler » et non « valider » : les deux font avancer un dialogue, mais
+   * seul « valider » ouvrirait un menu une fois la file vide.
+   */
+  function viderIntro(banc: Banc): void {
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+  }
+
+  /** Un banc déjà en combat sauvage, avec une équipe de la taille demandée. */
+  function bancEnCombat(taille = 1): Banc {
+    const banc = creerBanc();
+    for (let index = 0; index < taille; index++) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(10 + index), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: 'folianz',
+          niveau: 20,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(11), {
+            uid: 'sauvage-1',
+            speciesId: 'plumelle',
+            niveau: 12,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    return banc;
+  }
+
   it('inscrit l’adversaire au Terradex dès le premier tour', () => {
     const banc = creerBanc();
     accueillirCreature(
@@ -585,5 +702,760 @@ describe('combat', () => {
     );
     banc.trame();
     expect(banc.jeu.state.progression.terradexVus).toContain('galetin');
+  });
+
+  it('affiche l’altération sur la jauge, et non « PV »', () => {
+    const banc = bancEnCombat();
+    banc.trame();
+    banc.jeu.state.equipe[0]!.statut = 'poison';
+
+    textesDessines = [];
+    banc.trame();
+    expect(textesDessines).toContain('PSN');
+  });
+
+  it('montre la créature sélectionnée même au-delà de la troisième', () => {
+    const banc = bancEnCombat(6);
+    viderIntro(banc);
+
+    // Menu racine sur deux colonnes : Attaquer(0) Sac(1) / Équipe(2) Fuir(3).
+    banc.entrees.presser('sud');
+    banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+    // Sixième membre de l'équipe : hors de la fenêtre de trois lignes.
+    for (let i = 0; i < 5; i++) {
+      banc.entrees.presser('sud');
+      banc.trame();
+    }
+
+    textesDessines = [];
+    banc.trame();
+    const attendu = banc.jeu.nomCreature(banc.jeu.state.equipe[5]!);
+    expect(textesDessines.some((texte) => texte.startsWith(attendu))).toBe(true);
+    // Et le repère de position dit où l'on se trouve dans la liste.
+    expect(textesDessines).toContain('6/6');
+  });
+});
+
+describe('reprise d’un combat interrompu', () => {
+  const HORODATAGE = '2026-08-07T12:00:00.000Z';
+
+  /** Rejoue une sauvegarde dans un jeu neuf, comme le ferait « Continuer ». */
+  function reprendre(texte: string): Banc {
+    const resultat = chargerDepuisTexte(texte);
+    expect(resultat.ok).toBe(true);
+    if (!resultat.ok) throw new Error(resultat.raison);
+
+    const banc = creerBanc();
+    banc.jeu.chargerPartie(resultat.valeur.state);
+    entrerDansLaPartie(banc.jeu);
+    return banc;
+  }
+
+  function bancAvecCombat(): Banc {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(21), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'mulotin',
+        niveau: 25,
+        origine: 'brume-3f7a',
+      }),
+    );
+    // Cri Perçant ne fait aucun dégât mais baisse l'Attaque adverse à coup sûr : le
+    // combat avance d'un tour et pose un étage, sans risquer le K.O. qui le clôturerait.
+    banc.jeu.state.equipe[0]!.moves = [{ id: 'cri', pp: 40 }];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(22), {
+            uid: 'sauvage-2',
+            speciesId: 'plumelle',
+            niveau: 22,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    return banc;
+  }
+
+  it('inscrit le combat dans la partie dès la première trame', () => {
+    const banc = bancAvecCombat();
+    banc.trame();
+    expect(banc.jeu.state.combat?.genre).toBe('sauvage');
+    expect(banc.jeu.state.combat?.adversaires[0]!.speciesId).toBe('plumelle');
+  });
+
+  /** Le scénario du rapport : fermer l'onglet en plein échange, puis « Continuer ». */
+  it('rouvre le combat là où il s’était arrêté', () => {
+    const banc = bancAvecCombat();
+    // On martèle « valider » — dialogues, menu d'attaques, première attaque — jusqu'à ce
+    // qu'un tour complet soit résolu.
+    for (let i = 0; i < 200 && banc.jeu.sommet?.nom === 'combat'; i++) {
+      banc.entrees.presser('valider');
+      banc.trame();
+      if ((banc.jeu.state.combat?.tour ?? 0) > 0 && !banc.jeu.dialogue.actif) break;
+    }
+
+    const avant = structuredClone(banc.jeu.state.combat!);
+    expect(avant.tour).toBeGreaterThan(0);
+    expect(avant.etagesAdverse.attaque).toBe(-1);
+    const mien = banc.jeu.state.equipe[0]!;
+
+    const document = banc.jeu.documentDePartie();
+    expect(document).not.toBeNull();
+
+    const repris = reprendre(JSON.stringify(document));
+    expect(repris.jeu.sommet?.nom).toBe('combat');
+    expect(repris.jeu.state.combat).toEqual(avant);
+    expect(repris.jeu.state.equipe[0]!.pv).toBe(mien.pv);
+
+    // Le monde est bien dessous : quitter le combat ne laisse pas une pile vide.
+    repris.jeu.retirer();
+    expect(repris.jeu.sommet?.nom).toBe('overworld');
+  });
+
+  it('conserve les étages de statistiques et le compteur de tours', () => {
+    const banc = bancAvecCombat();
+    banc.trame();
+    const combat = banc.jeu.state.combat!;
+    combat.etagesJoueur.attaque = 2;
+    combat.etagesAdverse.vitesse = -3;
+    combat.tour = 7;
+    combat.tentativesFuite = 1;
+    const attendu = structuredClone(combat);
+
+    // On exporte sans passer par `documentDePartie` : son crochet redemanderait son
+    // instantané à la scène et écraserait les valeurs posées ici. C'est bien le chemin
+    // d'un fichier reçu de l'extérieur qu'on veut éprouver.
+    const repris = reprendre(JSON.stringify(exporterPartie(banc.jeu.state, HORODATAGE)));
+    expect(repris.jeu.state.combat).toEqual(attendu);
+  });
+
+  it('retire le combat de la partie quand l’écran se ferme', () => {
+    const banc = bancAvecCombat();
+    banc.trame();
+    expect(banc.jeu.state.combat).not.toBeNull();
+
+    banc.jeu.retirer();
+    expect(banc.jeu.state.combat).toBeNull();
+    expect(banc.jeu.sommet?.nom).toBe('overworld');
+  });
+
+  /**
+   * L'engrenage s'ouvre par-dessus le combat : le sommet de la pile n'est plus lui. Sans
+   * consulter toute la pile, un export lancé depuis les réglages emporterait un
+   * instantané périmé.
+   */
+  it('emporte le combat même quand les réglages sont ouverts par-dessus', () => {
+    const banc = bancAvecCombat();
+    banc.trame();
+    banc.jeu.ouvrirParametres(() => new SceneParametres());
+    expect(banc.jeu.sommet?.nom).toBe('parametres');
+
+    const document = banc.jeu.documentDePartie();
+    expect(document?.combat?.adversaires[0]!.speciesId).toBe('plumelle');
+
+    const repris = reprendre(JSON.stringify(document));
+    expect(repris.jeu.sommet?.nom).toBe('combat');
+  });
+
+  /**
+   * Charger une partie depuis un écran de combat vide la pile, donc appelle le `quitter`
+   * de l'ancien combat — qui efface le champ que la nouvelle partie vient de poser.
+   */
+  it('n’efface pas le combat chargé en refermant celui d’avant', () => {
+    const source = bancAvecCombat();
+    source.trame();
+    const texte = JSON.stringify(source.jeu.documentDePartie());
+
+    // Le jeu d'accueil est lui aussi en plein combat quand l'import arrive.
+    const banc = bancAvecCombat();
+    banc.trame();
+    const charge = chargerDepuisTexte(texte);
+    expect(charge.ok).toBe(true);
+    if (!charge.ok) return;
+
+    banc.jeu.chargerPartie(charge.valeur.state);
+    entrerDansLaPartie(banc.jeu);
+    expect(banc.jeu.sommet?.nom).toBe('combat');
+    expect(banc.jeu.state.combat?.adversaires[0]!.speciesId).toBe('plumelle');
+  });
+
+  it('revient simplement au monde quand la sauvegarde n’a pas de combat', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(23), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 10,
+        origine: 'brume-3f7a',
+      }),
+    );
+    const repris = reprendre(JSON.stringify(banc.jeu.documentDePartie()));
+    expect(repris.jeu.sommet?.nom).toBe('overworld');
+  });
+});
+
+describe('lisibilité du monde', () => {
+  /**
+   * Le bandeau n'affichait que l'heure. Or c'est la **phase** qui décide de ce qu'on
+   * croise : sans son nom, rien ne reliait « 21 h » à « les nocturnes sortent ».
+   */
+  it('nomme la phase du jour à côté de l’horloge', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(90), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 10,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+
+    for (const [minutes, cle] of [
+      [6 * 60, 'heure.aube'],
+      [12 * 60, 'heure.jour'],
+      [19 * 60, 'heure.crepuscule'],
+      [23 * 60, 'heure.nuit'],
+    ] as const) {
+      banc.jeu.state.horloge.minutes = minutes;
+      textesDessines = [];
+      banc.trame();
+      expect(
+        textesDessines.some((texte) => texte.startsWith(banc.jeu.t(cle))),
+        `à ${minutes / 60} h, le bandeau doit dire ${cle}`,
+      ).toBe(true);
+    }
+  });
+
+  it('offre un enregistrement explicite, et le confirme', async () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(91), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 10,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneMenu());
+
+    // Racine : Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde.
+    for (let i = 0; i < 5; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+    // Première entrée de l'onglet : « Enregistrer maintenant ».
+    await banc.agir('valider', 1);
+
+    expect(lireSauvegardeLocale(), 'la partie doit être écrite').not.toBeNull();
+    expect(banc.jeu.dialogue.actif, 'et l’écriture doit être confirmée').toBe(true);
+  });
+});
+
+describe('arènes et badges', () => {
+  /**
+   * Poste le joueur juste sous la porte nord d'une arène, prêt à la franchir.
+   *
+   * C'est la mécanique qui donne un sens aux badges : sans elle, `progression.badges`
+   * était écrit après chaque champion et relu par personne, et une arène n'était qu'un
+   * combat de plus qu'on pouvait ignorer.
+   */
+  function bancDevantLaPorte(seedText: string): { banc: Banc; arene: number; type: ElementType } {
+    const banc = creerBanc();
+    banc.jeu.chargerPartie(creerPartie(seedText, 'fr'));
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(70), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 40,
+        origine: seedText,
+      }),
+    );
+
+    const arene = banc.jeu.monde.plans.find((plan) => plan.role === 'arene')!;
+    const region = banc.jeu.monde.region(arene.index);
+    const porte = region.sorties.find((sortie) => sortie.cote === 'nord')!;
+
+    banc.jeu.state.joueur.regionIndex = arene.index;
+    banc.jeu.state.joueur.x = porte.x;
+    banc.jeu.state.joueur.y = porte.y + 1;
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    return { banc, arene: arene.index, type: arene.typeArene! };
+  }
+
+  /** Un pas vers le nord, laissé le temps de s'achever. */
+  function pasVersLeNord(banc: Banc): void {
+    banc.entrees.tenir('nord');
+    for (let i = 0; i < 30; i++) banc.trame();
+    banc.entrees.relacher('nord');
+    for (let i = 0; i < 5; i++) banc.trame();
+  }
+
+  it('ferme la porte du fond tant que le champion n’est pas battu', () => {
+    const { banc, arene } = bancDevantLaPorte('brume-3f7a');
+    pasVersLeNord(banc);
+
+    expect(banc.jeu.state.joueur.regionIndex, 'la porte doit rester close').toBe(arene);
+    expect(banc.jeu.dialogue.actif, 'le refus doit être expliqué').toBe(true);
+  });
+
+  it('ouvre la porte une fois l’insigne remporté', () => {
+    const { banc, arene, type } = bancDevantLaPorte('brume-3f7a');
+    donnerBadge(banc.jeu.state, badgeDe(type));
+    pasVersLeNord(banc);
+
+    expect(banc.jeu.state.joueur.regionIndex).toBe(arene + 1);
+  });
+
+  it('n’entrave pas les régions ordinaires', () => {
+    const banc = creerBanc();
+    const premiere = banc.jeu.monde.plans.find((plan) => plan.role !== 'bourg')!;
+    expect(premiere.typeArene).toBeUndefined();
+    const region = banc.jeu.monde.region(premiere.index);
+    const porte = region.sorties.find((sortie) => sortie.cote === 'nord')!;
+
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(71), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 40,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.state.joueur.regionIndex = premiere.index;
+    banc.jeu.state.joueur.x = porte.x;
+    banc.jeu.state.joueur.y = porte.y + 1;
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+
+    banc.entrees.tenir('nord');
+    for (let i = 0; i < 30; i++) banc.trame();
+    banc.entrees.relacher('nord');
+    for (let i = 0; i < 5; i++) banc.trame();
+
+    expect(banc.jeu.state.joueur.regionIndex).toBe(premiere.index + 1);
+  });
+
+  it('affiche les insignes remportés dans le menu', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(72), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 10,
+        origine: 'brume-3f7a',
+      }),
+    );
+    donnerBadge(banc.jeu.state, badgeDe('flamme'));
+    donnerBadge(banc.jeu.state, badgeDe('givre'));
+    expect(typesDesBadges(banc.jeu.state)).toEqual(['flamme', 'givre']);
+
+    banc.jeu.pousser(new SceneMenu());
+    appelsDessin = 0;
+    banc.trame();
+    expect(appelsDessin).toBeGreaterThan(5);
+  });
+
+  it('ignore un badge inconnu plutôt que de faire échouer la lecture', () => {
+    // Les badges sont du texte libre dans la sauvegarde : une version future peut en
+    // écrire que celle-ci ne connaît pas, sans que le menu s'en trouve cassé.
+    const banc = creerBanc();
+    banc.jeu.state.progression.badges.push('badge:inconnu', 'vieux-format');
+    donnerBadge(banc.jeu.state, badgeDe('onde'));
+    expect(typesDesBadges(banc.jeu.state)).toEqual(['onde']);
+  });
+});
+
+describe('fin de partie', () => {
+  /** Une partie où il ne reste plus qu'un champion à battre. */
+  function bancPresqueVictorieux(): Banc {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(80), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 40,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    return banc;
+  }
+
+  /** Décerne tous les insignes du monde, comme le ferait la victoire sur chaque arène. */
+  function toutRemporter(banc: Banc): void {
+    for (const plan of banc.jeu.monde.plans) {
+      if (plan.typeArene) donnerBadge(banc.jeu.state, badgeDe(plan.typeArene));
+    }
+  }
+
+  it('ne s’ouvre pas tant qu’une arène reste à battre', () => {
+    const banc = bancPresqueVictorieux();
+    const arenes = banc.jeu.monde.plans.filter((plan) => plan.role === 'arene');
+    expect(arenes.length).toBeGreaterThanOrEqual(2);
+    donnerBadge(banc.jeu.state, badgeDe(arenes[0]!.typeArene!));
+
+    expect(toutesLesArenesVaincues(banc.jeu.monde.plans, banc.jeu.state.progression.badges)).toBe(false);
+    poserDrapeau(banc.jeu.state, 'victoire');
+    // Le drapeau seul déclenche l'écran : c'est bien le combat qui décide de le poser.
+    banc.trame();
+    expect(banc.jeu.sommet?.nom).toBe('fin');
+  });
+
+  it('reconnaît la victoire quand tous les insignes sont là', () => {
+    const banc = bancPresqueVictorieux();
+    toutRemporter(banc);
+    expect(toutesLesArenesVaincues(banc.jeu.monde.plans, banc.jeu.state.progression.badges)).toBe(true);
+  });
+
+  it('s’ouvre une fois, puis plus jamais', () => {
+    const banc = bancPresqueVictorieux();
+    toutRemporter(banc);
+    poserDrapeau(banc.jeu.state, 'victoire');
+
+    banc.trame();
+    expect(banc.jeu.sommet?.nom).toBe('fin');
+    appelsDessin = 0;
+    debordements = [];
+    banc.trame();
+    expect(appelsDessin, 'l’écran de fin doit dessiner quelque chose').toBeGreaterThan(20);
+    expect(debordements.map((d) => d.texte), 'rien ne doit sortir du cadre').toEqual([]);
+
+    // « Reprendre » : on revient au monde, et l'écran ne revient plus.
+    banc.entrees.presser('valider');
+    banc.trame();
+    expect(banc.jeu.sommet?.nom).toBe('overworld');
+    for (let i = 0; i < 10; i++) banc.trame();
+    expect(banc.jeu.sommet?.nom).toBe('overworld');
+  });
+
+  it('propose de repartir sur une autre seed', () => {
+    const banc = bancPresqueVictorieux();
+    toutRemporter(banc);
+    poserDrapeau(banc.jeu.state, 'victoire');
+    banc.trame();
+
+    banc.entrees.presser('sud');
+    banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+    // La pile est remplacée : le monde d'avant n'est plus dessous.
+    expect(banc.jeu.sommet?.nom).toBe('titre');
+  });
+
+  it('tient dans le cadre dans les deux langues', () => {
+    for (const langue of LANGUES) {
+      const banc = creerBanc(langue);
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(81), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: 'folianz',
+          niveau: 40,
+          origine: 'brume-3f7a',
+        }),
+      );
+      toutRemporter(banc);
+      banc.jeu.pousser(new SceneFin());
+      debordements = [];
+      banc.trame();
+      expect(debordements.map((d) => `${langue} : ${d.texte}`)).toEqual([]);
+    }
+  });
+});
+
+describe('réserve', () => {
+  /**
+   * Sans cet écran, la réserve était un trou noir : `accueillirCreature` y rangeait le
+   * surplus, et rien ne l'en sortait jamais. Capturer une septième créature revenait à
+   * la perdre.
+   */
+  function bancAvec(nombre: number): Banc {
+    const banc = creerBanc();
+    for (let index = 0; index < nombre; index++) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(60 + index), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: SPECIES_IDS[index % SPECIES_IDS.length]!,
+          niveau: 10,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+    banc.jeu.pousser(new SceneMenu());
+    return banc;
+  }
+
+  /** Ouvre l'onglet Réserve depuis la racine du menu. */
+  async function ouvrir(banc: Banc): Promise<void> {
+    await banc.agir('sud', 1); // Équipe → Réserve
+    await banc.agir('valider', 1);
+  }
+
+  it('range le surplus en réserve au-delà de six créatures', () => {
+    const banc = bancAvec(8);
+    expect(banc.jeu.state.equipe).toHaveLength(6);
+    expect(banc.jeu.state.reserve).toHaveLength(2);
+  });
+
+  it('dépose une créature puis la reprend', async () => {
+    const banc = bancAvec(3);
+    await ouvrir(banc);
+
+    const depose = banc.jeu.state.equipe[0]!.uid;
+    await banc.agir('valider', 1);
+    expect(banc.jeu.state.equipe).toHaveLength(2);
+    expect(banc.jeu.state.reserve.map((m) => m.uid)).toContain(depose);
+
+    // À droite, puis on la reprend : l'équipe n'est pas pleine.
+    await banc.agir('est', 1);
+    await banc.agir('valider', 2);
+    expect(banc.jeu.state.equipe).toHaveLength(3);
+    expect(banc.jeu.state.equipe.map((m) => m.uid)).toContain(depose);
+  });
+
+  it('refuse de vider entièrement l’équipe', async () => {
+    const banc = bancAvec(1);
+    await ouvrir(banc);
+    await banc.agir('valider', 1);
+
+    expect(banc.jeu.state.equipe).toHaveLength(1);
+    expect(banc.jeu.state.reserve).toHaveLength(0);
+  });
+
+  it('échange quand l’équipe est au complet, sans rien perdre', async () => {
+    const banc = bancAvec(8);
+    await ouvrir(banc);
+
+    const avantEquipe = banc.jeu.state.equipe[0]!.uid;
+    const avantReserve = banc.jeu.state.reserve[0]!.uid;
+    await banc.agir('est', 1);
+    await banc.agir('valider', 2);
+
+    expect(banc.jeu.state.equipe).toHaveLength(6);
+    expect(banc.jeu.state.reserve).toHaveLength(2);
+    expect(banc.jeu.state.equipe.map((m) => m.uid)).toContain(avantReserve);
+    expect(banc.jeu.state.reserve.map((m) => m.uid)).toContain(avantEquipe);
+  });
+
+  it('dessine les deux colonnes sans déborder du cadre', async () => {
+    const banc = bancAvec(10);
+    await ouvrir(banc);
+    debordements = [];
+    appelsDessin = 0;
+    banc.trame();
+    expect(appelsDessin).toBeGreaterThan(5);
+    expect(debordements.map((d) => d.texte)).toEqual([]);
+  });
+});
+
+describe('boîte de dialogue', () => {
+  /**
+   * Fait tourner la boîte seule : aucune scène n'est nécessaire pour l'éprouver.
+   *
+   * Plusieurs trames par appel, parce que le texte se révèle caractère par caractère —
+   * la première n'en aurait pas encore affiché un seul.
+   */
+  function battre(banc: Banc, presser?: ActionJeu): string[] {
+    if (presser) {
+      banc.entrees.presser(presser);
+      banc.jeu.dialogue.mettreAJour(1 / 60, banc.entrees);
+      banc.entrees.finDeTrame();
+    }
+    for (let i = 0; i < 30; i++) banc.jeu.dialogue.mettreAJour(1 / 60, banc.entrees);
+    textesDessines = [];
+    banc.jeu.dialogue.dessiner();
+    return textesDessines;
+  }
+
+  /**
+   * Une question posée derrière un message effaçait ce message et toute la file. Le
+   * symptôme se voyait à l'import : le résumé de la sauvegarde disparaissait sous la
+   * demande de confirmation qui le suivait.
+   */
+  it('n’efface pas le message en cours quand une question survient', async () => {
+    const banc = creerBanc();
+    banc.jeu.dialogue.dire('premier message', 'second message');
+    let choix = -1;
+    void banc.jeu.dialogue.demander('la question', ['oui', 'non']).then((valeur) => {
+      choix = valeur;
+    });
+
+    expect(battre(banc).join(' ')).toContain('premier');
+
+    // Le texte est déjà révélé à ce stade : une pression par message suffit à l'écouler.
+    expect(battre(banc, 'valider').join(' ')).toContain('second');
+    const affiche = battre(banc, 'valider');
+    expect(affiche.join(' ')).toContain('la question');
+    expect(affiche).toContain('oui');
+
+    battre(banc, 'valider');
+    await Promise.resolve();
+    expect(choix).toBe(0);
+    expect(banc.jeu.dialogue.actif).toBe(false);
+  });
+
+  it('ouvre la question tout de suite quand rien ne parle', () => {
+    const banc = creerBanc();
+    void banc.jeu.dialogue.demander('seule', ['oui', 'non']);
+    expect(battre(banc).join(' ')).toContain('seule');
+  });
+});
+
+describe('apprentissage d’une attaque', () => {
+  /**
+   * Passé quatre attaques, une nouvelle était jetée en silence : la créature n'apprenait
+   * plus jamais rien. Elle doit désormais proposer d'en oublier une.
+   */
+  function bancPretAApprendre(): Banc {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(41), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'mulotin',
+        niveau: 25,
+        origine: 'brume-3f7a',
+      }),
+    );
+    // Quatre emplacements pris, dont aucun n'est Élan Téméraire — l'attaque que Mulotin
+    // apprend au niveau 26. À un point d'expérience du seuil, la prochaine victoire
+    // déclenche l'apprentissage.
+    const mien = banc.jeu.state.equipe[0]!;
+    mien.moves = [
+      { id: 'ruade', pp: 35 },
+      { id: 'cri', pp: 40 },
+      { id: 'pisteRapide', pp: 30 },
+      { id: 'chargeLourde', pp: 20 },
+    ];
+    mien.xp = experienceForLevel(26, SPECIES.mulotin.croissance) - 1;
+
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(42), {
+            uid: 'sauvage-3',
+            speciesId: 'plumelle',
+            niveau: 2,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    return banc;
+  }
+
+  it('propose d’oublier une attaque et applique le remplacement', async () => {
+    const banc = bancPretAApprendre();
+    const gagnante = banc.jeu.state.equipe[0]!;
+    const remplacee = gagnante.moves[1]!.id;
+
+    // On abat l'adversaire en martelant « valider », jusqu'à voir la question d'oubli —
+    // reconnaissable à son option de sortie, dessinée seulement quand elle est ouverte.
+    let posee = false;
+    for (let i = 0; i < 400 && !posee; i++) {
+      banc.entrees.presser('valider');
+      await banc.trameAsync();
+      textesDessines = [];
+      banc.trame();
+      posee = textesDessines.includes(banc.jeu.t('combat.renoncer'));
+    }
+    expect(posee, 'la question d’oubli doit s’ouvrir').toBe(true);
+    expect(gagnante.niveau).toBe(26);
+
+    // Deuxième attaque de la liste, puis on confirme.
+    banc.entrees.presser('sud');
+    await banc.trameAsync();
+    banc.entrees.presser('valider');
+    await banc.trameAsync();
+
+    expect(gagnante.moves).toHaveLength(4);
+    expect(gagnante.moves.map((slot) => slot.id)).not.toContain(remplacee);
+    expect(gagnante.moves.map((slot) => slot.id)).toContain('elanTemeraire');
+  });
+
+  it('referme le combat une fois la question réglée', async () => {
+    const banc = bancPretAApprendre();
+    for (let i = 0; i < 400 && banc.jeu.sommet?.nom === 'combat'; i++) {
+      banc.entrees.presser('valider');
+      await banc.trameAsync();
+    }
+    expect(banc.jeu.sommet?.nom).toBe('overworld');
+    // « Ne rien oublier » : les quatre attaques d'origine sont conservées.
+    expect(banc.jeu.state.equipe[0]!.moves).toHaveLength(4);
+  });
+});
+
+describe('sauvegarde automatique', () => {
+  it('refuse d’écrire une partie sans créature, pour ne pas effacer la précédente', () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneTitre('brume-3f7a'));
+
+    expect(banc.jeu.state.equipe).toHaveLength(0);
+    expect(banc.jeu.sauvegarderLocalement()).toBe(false);
+    expect(banc.jeu.documentDePartie()).toBeNull();
+    expect(lireSauvegardeLocale()).toBeNull();
+  });
+
+  it('écrit dès qu’une équipe existe', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(31), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 5,
+        origine: 'brume-3f7a',
+      }),
+    );
+    expect(banc.jeu.sauvegarderLocalement()).toBe(true);
+    expect(lireSauvegardeLocale()).not.toBeNull();
+  });
+
+  it('écrit périodiquement pendant la marche, sans attendre un événement', () => {
+    const banc = creerBanc();
+    const depart = creerMonde('brume-3f7a').region(0).depart;
+    banc.jeu.state.joueur.x = depart.x;
+    banc.jeu.state.joueur.y = depart.y;
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(32), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 8,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+
+    // Une seconde de jeu ne déclenche rien : l'écriture est cadencée, pas continue.
+    for (let i = 0; i < 60; i++) banc.trame();
+    expect(lireSauvegardeLocale()).toBeNull();
+
+    // Passé la tranche de dix secondes, la position est sur le disque.
+    for (let i = 0; i < 600; i++) banc.trame();
+    expect(lireSauvegardeLocale()).not.toBeNull();
   });
 });

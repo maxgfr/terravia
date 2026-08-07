@@ -47,6 +47,12 @@ export interface Assets {
     readonly size: number;
     readonly order: readonly string[];
   };
+  /** Écussons d'arène, un par type élémentaire. */
+  readonly insignes: {
+    readonly image: HTMLImageElement;
+    readonly size: number;
+    readonly order: readonly string[];
+  };
   readonly personnages: {
     readonly image: HTMLImageElement;
     readonly width: number;
@@ -92,12 +98,13 @@ function indexer<T extends string>(order: readonly T[]): Map<T, number> {
 }
 
 export async function chargerAssets(): Promise<Assets> {
-  const [police, tileset, cadre, plaques, icones, personnages, creatures] = await Promise.all([
+  const [police, tileset, cadre, plaques, icones, insignes, personnages, creatures] = await Promise.all([
     chargerImage('font.png'),
     chargerImage('tileset.png'),
     chargerImage('frame.png'),
     chargerImage('badges.png'),
     chargerImage('icons.png'),
+    chargerImage('insignes.png'),
     chargerImage('characters.png'),
     chargerImage('creatures.png'),
   ]);
@@ -108,6 +115,7 @@ export async function chargerAssets(): Promise<Assets> {
     chargerJson<{
       frameSlice: number;
       badge: { width: number; height: number; order: string[] };
+      insigne: { size: number; order: string[] };
       icons: { size: number; order: string[] };
     }>('ui.json'),
     chargerJson<{
@@ -141,6 +149,7 @@ export async function chargerAssets(): Promise<Assets> {
       order: metaUi.badge.order,
     },
     icones: { image: icones, size: metaUi.icons.size, order: metaUi.icons.order },
+    insignes: { image: insignes, size: metaUi.insigne.size, order: metaUi.insigne.order },
     personnages: {
       image: personnages,
       width: metaPersonnages.width,

@@ -1,5 +1,5 @@
 /**
- * Le bestiaire : 30 espèces originales en 12 lignées.
+ * Le bestiaire : 40 espèces originales en 17 lignées.
  *
  * Chaque espèce déclare tout ce qui la définit, y compris son **apparence** — silhouette
  * et attributs. Le générateur de sprites lit ce champ : il ne devine pas à quoi ressemble
@@ -91,6 +91,21 @@ export const SPECIES_IDS = [
   'ecorcin',
   'solarion',
   'nyxaris',
+  // ── Lignée de rivière : ce qu'on remonte au bout d'une ligne ────────────────
+  'vairelin',
+  'harponaz',
+  'abyssarque',
+  // ── Nocturnes de lande et de ruines ─────────────────────────────────────────
+  'lueuvre',
+  'falenoire',
+  // ── Fond des grottes ────────────────────────────────────────────────────────
+  'cavernin',
+  'troglodon',
+  // ── Prairie et hauteurs ─────────────────────────────────────────────────────
+  'cabrilion',
+  'alpirok',
+  // ── Unique du sanctuaire ────────────────────────────────────────────────────
+  'chronaris',
 ] as const;
 
 export type SpeciesId = (typeof SPECIES_IDS)[number];
@@ -924,7 +939,10 @@ const DEFINITIONS: Record<SpeciesId, SpeciesDefinition> = {
       { niveau: 55, move: 'blizzard' },
     ],
     talents: ['intimidation', 'sangFroid'],
-    habitats: ['grotte'],
+    // Les ruines s'ajoutent à la grotte : c'est le biome du sanctuaire, seul endroit où
+    // les créatures uniques se laissent croiser. Sans cela, Nyxaris n'existait nulle
+    // part dans le jeu et le Terradex ne pouvait pas se terminer.
+    habitats: ['grotte', 'ruines'],
     creneau: 'nuit',
     taille: 2.1,
     poids: 88,
@@ -932,6 +950,310 @@ const DEFINITIONS: Record<SpeciesId, SpeciesDefinition> = {
     description: {
       fr: 'Au fond des grottes, il fait plus froid là où il est passé qu’à l’endroit où il se tient.',
       en: 'Deep in the caves, it is colder where it has been than where it stands.',
+    },
+  },
+
+  // ── Lignée de rivière ────────────────────────────────────────────────────────
+  // La rivière était le biome le plus dépeuplé du jeu, et la pêche n'aurait rien eu à
+  // remonter. Cette lignée passe de l'eau pure au métal : c'est elle qu'on accroche au
+  // bout d'une ligne, et elle grimpe assez haut pour rester intéressante en fin de partie.
+  vairelin: {
+    nom: { fr: 'Vairelin', en: 'Minnowin' },
+    types: ['onde'],
+    base: stats(42, 52, 44, 55, 46, 66),
+    tauxCapture: 190,
+    gainXp: 58,
+    croissance: 'rapide',
+    apprentissage: [
+      { niveau: 1, move: 'ruade' },
+      { niveau: 1, move: 'jetDEau' },
+      { niveau: 9, move: 'pisteRapide' },
+      { niveau: 15, move: 'coupDeNageoire' },
+      { niveau: 22, move: 'brumeProtectrice' },
+      { niveau: 30, move: 'torrent' },
+    ],
+    evolution: { vers: 'harponaz', niveau: 18 },
+    talents: ['ressac', 'vivacite'],
+    habitats: ['riviere'],
+    creneau: 'toujours',
+    taille: 0.3,
+    poids: 2.4,
+    apparence: { silhouette: 'aquatique', traits: ['nageoires', 'crete'], gabarit: 'petit' },
+    description: {
+      fr: 'Il remonte les courants les plus vifs à contre-sens, par simple entêtement.',
+      en: 'It swims the swiftest currents the wrong way, out of sheer stubbornness.',
+    },
+  },
+  harponaz: {
+    nom: { fr: 'Harponaz', en: 'Harpoonaz' },
+    types: ['onde', 'metal'],
+    base: stats(58, 78, 62, 68, 58, 84),
+    tauxCapture: 70,
+    gainXp: 122,
+    croissance: 'rapide',
+    apprentissage: [
+      { niveau: 1, move: 'jetDEau' },
+      { niveau: 1, move: 'pisteRapide' },
+      { niveau: 20, move: 'lameDAcier' },
+      { niveau: 26, move: 'coupDeNageoire' },
+      { niveau: 33, move: 'aiguisage' },
+      { niveau: 40, move: 'torrent' },
+      { niveau: 48, move: 'poingDeFer' },
+    ],
+    evolution: { vers: 'abyssarque', niveau: 36 },
+    talents: ['ressac', 'trancheFine'],
+    habitats: ['riviere'],
+    creneau: 'toujours',
+    taille: 1.1,
+    poids: 26,
+    apparence: { silhouette: 'aquatique', traits: ['nageoires', 'crete', 'crocs'], gabarit: 'moyen' },
+    description: {
+      fr: 'Son rostre s’est durci au point de fendre la glace d’un seul élan.',
+      en: 'Its rostrum has hardened enough to split ice in a single rush.',
+    },
+  },
+  abyssarque: {
+    nom: { fr: 'Abyssarque', en: 'Abyssarch' },
+    types: ['onde', 'metal'],
+    base: stats(84, 108, 92, 88, 80, 96),
+    tauxCapture: 30,
+    gainXp: 202,
+    croissance: 'lent',
+    apprentissage: [
+      { niveau: 1, move: 'torrent' },
+      { niveau: 1, move: 'lameDAcier' },
+      { niveau: 36, move: 'aiguisage' },
+      { niveau: 44, move: 'poingDeFer' },
+      { niveau: 52, move: 'deferlante' },
+      { niveau: 60, move: 'souffleGlace' },
+    ],
+    talents: ['ressac', 'blindage'],
+    habitats: ['riviere'],
+    creneau: 'toujours',
+    taille: 2.6,
+    poids: 168,
+    apparence: {
+      silhouette: 'aquatique',
+      traits: ['nageoires', 'carapace', 'crocs', 'gemme'],
+      gabarit: 'grand',
+    },
+    description: {
+      fr: 'On ne le pêche pas : on le rencontre, et c’est lui qui décide de la suite.',
+      en: 'You do not catch it: you meet it, and it decides what happens next.',
+    },
+  },
+
+  // ── Nocturnes de lande et de ruines ──────────────────────────────────────────
+  // Quatre espèces seulement étaient strictement diurnes contre sept nocturnes, mais la
+  // lande et les ruines restaient vides une fois la nuit tombée sur ces biomes-là.
+  lueuvre: {
+    nom: { fr: 'Lueuvre', en: 'Glimmoth' },
+    types: ['vent'],
+    base: stats(46, 44, 42, 68, 56, 62),
+    tauxCapture: 175,
+    gainXp: 60,
+    croissance: 'moyen',
+    apprentissage: [
+      { niveau: 1, move: 'ruade' },
+      { niveau: 1, move: 'bourrasque' },
+      { niveau: 10, move: 'cri' },
+      { niveau: 17, move: 'sporesEngourdissantes' },
+      { niveau: 24, move: 'piqueAerienne' },
+      { niveau: 32, move: 'voileNoir' },
+    ],
+    evolution: { vers: 'falenoire', niveau: 24 },
+    talents: ['vivacite', 'voileLumineux'],
+    habitats: ['lande', 'ruines'],
+    creneau: 'nuit',
+    taille: 0.4,
+    poids: 1.8,
+    apparence: { silhouette: 'insecte', traits: ['ailes', 'antennes', 'aura'], gabarit: 'petit' },
+    description: {
+      fr: 'Ses ailes gardent la lumière du jour et la rendent lentement toute la nuit.',
+      en: 'Its wings hold the daylight and give it back slowly all night long.',
+    },
+  },
+  falenoire: {
+    nom: { fr: 'Falenoire', en: 'Duskwing' },
+    types: ['vent', 'ombre'],
+    base: stats(72, 62, 66, 104, 84, 88),
+    tauxCapture: 55,
+    gainXp: 168,
+    croissance: 'moyen',
+    apprentissage: [
+      { niveau: 1, move: 'bourrasque' },
+      { niveau: 1, move: 'voileNoir' },
+      { niveau: 28, move: 'emprisePenombre' },
+      { niveau: 36, move: 'tempete' },
+      { niveau: 44, move: 'griffeSpectrale' },
+      { niveau: 52, move: 'brumeToxique' },
+    ],
+    talents: ['intimidation', 'voileLumineux'],
+    habitats: ['lande', 'ruines'],
+    creneau: 'nuit',
+    taille: 1.4,
+    poids: 21,
+    apparence: {
+      silhouette: 'insecte',
+      traits: ['ailes', 'antennes', 'aura', 'crete'],
+      gabarit: 'grand',
+    },
+    description: {
+      fr: 'Elle éteint les lanternes en passant, sans qu’on sache jamais si c’est volontaire.',
+      en: 'It snuffs lanterns as it passes, and no one can tell whether it means to.',
+    },
+  },
+
+  // ── Fond des grottes ─────────────────────────────────────────────────────────
+  cavernin: {
+    nom: { fr: 'Cavernin', en: 'Delvin' },
+    types: ['roche'],
+    base: stats(58, 62, 78, 38, 52, 34),
+    tauxCapture: 185,
+    gainXp: 62,
+    croissance: 'moyen',
+    apprentissage: [
+      { niveau: 1, move: 'ruade' },
+      { niveau: 1, move: 'jetDePierres' },
+      { niveau: 11, move: 'repli' },
+      { niveau: 18, move: 'carapaceDePierre' },
+      { niveau: 26, move: 'rafaleDeCailloux' },
+      { niveau: 34, move: 'eboulement' },
+    ],
+    evolution: { vers: 'troglodon', niveau: 26 },
+    talents: ['fourrureEpaisse', 'blindage'],
+    habitats: ['grotte'],
+    creneau: 'toujours',
+    taille: 0.6,
+    poids: 34,
+    apparence: { silhouette: 'mineral', traits: ['carapace', 'cornes'], gabarit: 'petit' },
+    description: {
+      fr: 'Il creuse en avalant la roche et la recrache polie, en petits galets réguliers.',
+      en: 'It digs by swallowing rock and spits it back polished, in neat little pebbles.',
+    },
+  },
+  troglodon: {
+    nom: { fr: 'Troglodon', en: 'Troglodon' },
+    types: ['roche', 'ombre'],
+    base: stats(96, 98, 118, 52, 78, 46),
+    tauxCapture: 45,
+    gainXp: 176,
+    croissance: 'lent',
+    apprentissage: [
+      { niveau: 1, move: 'jetDePierres' },
+      { niveau: 1, move: 'carapaceDePierre' },
+      { niveau: 30, move: 'griffeSpectrale' },
+      { niveau: 38, move: 'eboulement' },
+      { niveau: 46, move: 'emprisePenombre' },
+      { niveau: 54, move: 'seisme' },
+    ],
+    talents: ['blindage', 'intimidation'],
+    habitats: ['grotte'],
+    creneau: 'nuit',
+    taille: 2.2,
+    poids: 240,
+    apparence: {
+      silhouette: 'quadrupede',
+      traits: ['carapace', 'cornes', 'crocs', 'gemme'],
+      gabarit: 'grand',
+    },
+    description: {
+      fr: 'Aveugle depuis si longtemps qu’il entend la forme des salles avant d’y entrer.',
+      en: 'Blind so long that it hears the shape of a chamber before stepping into it.',
+    },
+  },
+
+  // ── Prairie et hauteurs ──────────────────────────────────────────────────────
+  cabrilion: {
+    nom: { fr: 'Cabrilion', en: 'Kidling' },
+    types: ['neutre'],
+    base: stats(54, 64, 52, 40, 48, 68),
+    tauxCapture: 200,
+    gainXp: 56,
+    croissance: 'rapide',
+    apprentissage: [
+      { niveau: 1, move: 'ruade' },
+      { niveau: 1, move: 'cri' },
+      { niveau: 8, move: 'pisteRapide' },
+      { niveau: 16, move: 'jetDePierres' },
+      { niveau: 23, move: 'chargeLourde' },
+      { niveau: 31, move: 'rafaleDeCailloux' },
+    ],
+    evolution: { vers: 'alpirok', niveau: 22 },
+    talents: ['vivacite', 'fourrureEpaisse'],
+    // La lande en plus de la prairie et de la montagne : en plein jour, elle n'offrait
+    // qu'une seule espèce, et une route de lande montrait la même bête sans relâche.
+    habitats: ['prairie', 'montagne', 'lande'],
+    creneau: 'jour',
+    taille: 0.7,
+    poids: 18,
+    apparence: { silhouette: 'quadrupede', traits: ['cornes', 'queue'], gabarit: 'petit' },
+    description: {
+      fr: 'Il grimpe les pentes que rien d’autre ne grimpe, et redescend sans jamais glisser.',
+      en: 'It climbs slopes nothing else climbs, and comes back down without ever slipping.',
+    },
+  },
+  alpirok: {
+    nom: { fr: 'Alpirok', en: 'Alpirok' },
+    types: ['roche', 'vent'],
+    base: stats(82, 104, 88, 56, 72, 96),
+    tauxCapture: 50,
+    gainXp: 172,
+    croissance: 'moyen',
+    apprentissage: [
+      { niveau: 1, move: 'chargeLourde' },
+      { niveau: 1, move: 'jetDePierres' },
+      { niveau: 26, move: 'bourrasque' },
+      { niveau: 34, move: 'eboulement' },
+      { niveau: 42, move: 'piqueAerienne' },
+      { niveau: 50, move: 'seisme' },
+    ],
+    talents: ['intimidation', 'oeilAiguise'],
+    habitats: ['montagne'],
+    creneau: 'jour',
+    taille: 1.8,
+    poids: 155,
+    apparence: {
+      silhouette: 'quadrupede',
+      traits: ['cornes', 'crete', 'carapace', 'queue'],
+      gabarit: 'grand',
+    },
+    description: {
+      fr: 'Il charge d’un sommet à l’autre, et le vent qu’il lève arrive avant lui.',
+      en: 'It charges from peak to peak, and the wind it raises arrives before it does.',
+    },
+  },
+
+  // ── Unique du sanctuaire ─────────────────────────────────────────────────────
+  chronaris: {
+    nom: { fr: 'Chronaris', en: 'Chronaris' },
+    types: ['lumiere', 'vent'],
+    base: stats(94, 90, 92, 116, 104, 106),
+    tauxCapture: 3,
+    gainXp: 262,
+    croissance: 'lent',
+    apprentissage: [
+      { niveau: 1, move: 'rayonPur' },
+      { niveau: 1, move: 'bourrasque' },
+      { niveau: 1, move: 'benediction' },
+      { niveau: 50, move: 'eclatSolaire' },
+      { niveau: 58, move: 'tempete' },
+    ],
+    talents: ['voileLumineux', 'regeneration'],
+    // Les ruines seulement : c'est le biome du sanctuaire, et il ne se montre nulle part
+    // ailleurs. À toute heure, contrairement à ses deux pairs.
+    habitats: ['ruines'],
+    creneau: 'toujours',
+    taille: 3.4,
+    poids: 74,
+    apparence: {
+      silhouette: 'aile',
+      traits: ['ailes', 'aura', 'gemme', 'crete'],
+      gabarit: 'grand',
+    },
+    description: {
+      fr: 'On dit qu’il tourne au-dessus du sanctuaire depuis avant qu’on lui donne un nom.',
+      en: 'They say it has circled the sanctum since before anyone gave it a name.',
     },
   },
 };
@@ -944,7 +1266,13 @@ export function getSpecies(id: SpeciesId): Species {
   return SPECIES[id];
 }
 
-/** Les trois créatures proposées au début de l'aventure. */
+/**
+ * Le trio de secours, quand aucune seed n'a encore été tirée.
+ *
+ * Les créatures réellement proposées au départ dépendent de la seed — c'est
+ * `planifierMonde` qui les choisit, et `World.starters` qui les porte. Cette constante
+ * ne sert plus qu'à garantir qu'un trio jouable existe en toute circonstance.
+ */
 export const STARTER_IDS = ['folianz', 'braisou', 'gouttin'] as const satisfies readonly SpeciesId[];
 
 /** Somme des statistiques de base — sert à jauger l'équilibrage et à trier le Terradex. */

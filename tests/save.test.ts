@@ -17,7 +17,7 @@ import {
   utiliserObjetSur,
   type GameState,
 } from '../src/game/state.ts';
-import { calculerChecksum, jsonCanonique, signer } from '../src/save/format.ts';
+import { VERSION_ACTUELLE, calculerChecksum, jsonCanonique, signer } from '../src/save/format.ts';
 import {
   chargerCreatureDepuisTexte,
   chargerDepuisTexte,
@@ -249,15 +249,140 @@ describe('refus des fichiers invalides', () => {
   });
 });
 
+describe('combat en cours', () => {
+  /** Une partie arrêtée en plein échange, avec des étages et un tour déjà entamés. */
+  function partieEnCombat(): GameState {
+    const state = partieAvancee();
+    state.combat = {
+      genre: 'sauvage',
+      adversaires: [
+        creerCreature(makeRng(77), {
+          uid: prochainIdentifiant(state),
+          speciesId: 'plumelle',
+          niveau: 11,
+          origine: 'brume-3f7a',
+        }),
+      ],
+      dresseurId: null,
+      indexJoueur: 1,
+      indexAdverse: 0,
+      etagesJoueur: { attaque: 2, defense: 0, attaqueSpe: 0, defenseSpe: -1, vitesse: 0 },
+      etagesAdverse: { attaque: -1, defense: 0, attaqueSpe: 0, defenseSpe: 0, vitesse: 3 },
+      tour: 5,
+      tentativesFuite: 2,
+    };
+    state.combat.adversaires[0]!.pv = 9;
+    state.combat.adversaires[0]!.statut = 'paralysie';
+    return state;
+  }
+
+  it('survit à l’aller-retour sans rien perdre', () => {
+    const avant = partieEnCombat();
+    const texte = JSON.stringify(exporterPartie(avant, HORODATAGE));
+    const resultat = chargerDepuisTexte(texte);
+    expect(resultat.ok).toBe(true);
+    if (!resultat.ok) return;
+
+    const apres = resultat.valeur.state.combat;
+    expect(apres).not.toBeNull();
+    expect(apres).toEqual(avant.combat);
+  });
+
+  it('retient le dresseur par son identifiant plutôt que par sa fiche', () => {
+    const state = partieEnCombat();
+    state.combat!.genre = 'dresseur';
+    state.combat!.dresseurId = 'r3-dresseur-1';
+
+    const document = exporterPartie(state, HORODATAGE);
+    expect(document.combat?.dresseurId).toBe('r3-dresseur-1');
+    // La fiche du dresseur se rebâtit depuis la seed : elle n'a rien à faire ici.
+    expect(JSON.stringify(document.combat)).not.toContain('recompense');
+  });
+
+  it('n’écrit aucun bloc quand la partie n’est pas en combat', () => {
+    expect(exporterPartie(partieAvancee(), HORODATAGE).combat).toBeNull();
+  });
+
+  /**
+   * Le garde-fou qui compte : un échange abîmé coûte l'échange, jamais la partie. Sans
+   * lui, un bloc de combat bancal rendrait « Continuer » définitivement inutilisable.
+   */
+  it('abandonne un combat incohérent sans rejeter la sauvegarde', () => {
+    const state = partieEnCombat();
+    state.combat!.indexJoueur = 42;
+    const resultat = chargerDepuisTexte(JSON.stringify(exporterPartie(state, HORODATAGE)));
+
+    expect(resultat.ok).toBe(true);
+    if (!resultat.ok) return;
+    expect(resultat.valeur.state.combat).toBeNull();
+    expect(resultat.valeur.state.equipe).toHaveLength(3);
+    expect(resultat.avertissements.join(' ')).toContain('combat en cours abandonné');
+  });
+
+  it('abandonne un combat dont l’adversaire est déjà hors de combat', () => {
+    const state = partieEnCombat();
+    state.combat!.adversaires[0]!.pv = 0;
+    const resultat = chargerDepuisTexte(JSON.stringify(exporterPartie(state, HORODATAGE)));
+
+    expect(resultat.ok).toBe(true);
+    if (!resultat.ok) return;
+    expect(resultat.valeur.state.combat).toBeNull();
+  });
+
+  it('rejette un étage hors des bornes du combat', () => {
+    const state = partieEnCombat();
+    state.combat!.etagesJoueur.attaque = 9;
+    const resultat = chargerDepuisTexte(JSON.stringify(exporterPartie(state, HORODATAGE)));
+
+    expect(resultat.ok).toBe(true);
+    if (!resultat.ok) return;
+    expect(resultat.valeur.state.combat).toBeNull();
+    expect(resultat.avertissements.join(' ')).toContain('etagesJoueur.attaque');
+  });
+});
+
 describe('migrations', () => {
   it('laisse passer un document déjà à jour', () => {
-    const document = { format: 'terravia-save', version: 1, seed: 's' };
+    const document = { format: 'terravia-save', version: VERSION_ACTUELLE, seed: 's' };
     expect(migrer(document)).toEqual(document);
   });
 
-  it('n’altère pas un document sans version connue', () => {
+  it('hisse un document v1 jusqu’à la version courante', () => {
+    const document = { format: 'terravia-save', version: 1, seed: 's' };
+    expect(migrer(document)).toEqual({ ...document, version: 2, combat: null });
+  });
+
+  it('traite un document sans version comme une v1', () => {
     const document = { format: 'terravia-save', seed: 's' };
-    expect(migrer(document)).toEqual(document);
+    expect(migrer(document)).toEqual({ ...document, version: 2, combat: null });
+  });
+
+  /**
+   * Une migration change le contenu, donc la somme de contrôle. Sans précaution, toute
+   * sauvegarde v1 valide se serait mise à crier « fichier corrompu » au premier
+   * changement de format — exactement ce que le mécanisme est censé éviter.
+   */
+  it('ne fait pas passer une v1 saine pour un fichier corrompu', () => {
+    const document = exporterPartie(partieAvancee(), HORODATAGE) as unknown as Record<string, unknown>;
+    const { combat: _combat, ...sansCombat } = document;
+    const v1 = signer({ ...sansCombat, version: 1 });
+
+    const resultat = chargerDepuisTexte(JSON.stringify(v1));
+    expect(resultat.ok).toBe(true);
+    if (!resultat.ok) return;
+    expect(resultat.avertissements).toEqual([]);
+    expect(resultat.valeur.state.combat).toBeNull();
+  });
+
+  it('avertit quand même sur une v1 réellement modifiée', () => {
+    const document = exporterPartie(partieAvancee(), HORODATAGE) as unknown as Record<string, unknown>;
+    const { combat: _combat, ...sansCombat } = document;
+    const v1 = { ...signer({ ...sansCombat, version: 1 }), prochainUid: 999 };
+
+    const resultat = chargerDepuisTexte(JSON.stringify(v1));
+    expect(resultat.ok).toBe(true);
+    if (!resultat.ok) return;
+    expect(resultat.avertissements).toContain('somme de contrôle incorrecte');
   });
 });
 

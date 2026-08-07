@@ -18,6 +18,23 @@
       "toxine"
     ]
   },
+  "insigne": {
+    "size": 12,
+    "order": [
+      "neutre",
+      "flamme",
+      "onde",
+      "sylve",
+      "foudre",
+      "givre",
+      "roche",
+      "metal",
+      "vent",
+      "ombre",
+      "lumiere",
+      "toxine"
+    ]
+  },
   "icons": {
     "size": 16,
     "order": [

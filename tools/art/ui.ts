@@ -24,6 +24,8 @@ export const FRAME_SLICE = 8;
 export const BADGE_WIDTH = 34;
 export const BADGE_HEIGHT = 11;
 export const ICON_SIZE = 16;
+/** Insigne d'arène : un écusson carré, un par type élémentaire. */
+export const INSIGNE_SIZE = 12;
 
 /**
  * Cadre en neuf morceaux. Le jeu répète le bord et le centre pour obtenir n'importe
@@ -85,6 +87,58 @@ function buildBadge(type: ElementType): MutableSurface {
   }
 
   return badge;
+}
+
+/**
+ * Insigne d'arène : un écusson en losange, aux couleurs du type.
+ *
+ * Il se distingue de la plaque de type — qui est un bandeau derrière du texte — parce
+ * qu'il se lit seul, en petit, aligné avec ses semblables dans le menu. La forme en
+ * losange le rend reconnaissable à douze pixels de côté, là où un rectangle se
+ * confondrait avec n'importe quelle autre pastille de l'interface.
+ */
+function buildInsigne(type: ElementType): MutableSurface {
+  const palette = TYPE_PALETTES[type];
+  const insigne = createSurface(INSIGNE_SIZE, INSIGNE_SIZE);
+  const centre = (INSIGNE_SIZE - 1) / 2;
+
+  for (let y = 0; y < INSIGNE_SIZE; y++) {
+    for (let x = 0; x < INSIGNE_SIZE; x++) {
+      // Distance de Manhattan au centre : elle dessine un losange sans aucun test de cas.
+      const distance = Math.abs(x - centre) + Math.abs(y - centre);
+      if (distance > centre + 0.5) continue;
+      if (distance > centre - 0.5) {
+        setPixel(insigne, x, y, palette.outline);
+        continue;
+      }
+      // La lumière vient d'en haut : la rampe s'éclaircit vers le sommet.
+      const niveau = y < INSIGNE_SIZE / 3 ? 4 : y < (INSIGNE_SIZE * 2) / 3 ? 3 : 2;
+      setPixel(insigne, x, y, palette.ramp[niveau as 2 | 3 | 4]);
+    }
+  }
+
+  // Un éclat central, pour que l'écusson ne soit pas un aplat.
+  setPixel(insigne, Math.round(centre), Math.round(centre) - 1, palette.accent);
+  setPixel(insigne, Math.round(centre) - 1, Math.round(centre), palette.accent);
+  return insigne;
+}
+
+/** Tous les insignes empilés : une ligne par type, dans l'ordre de `ELEMENT_TYPES`. */
+export function buildInsignes(): MutableSurface {
+  const sheet = createSurface(INSIGNE_SIZE, INSIGNE_SIZE * ELEMENT_TYPES.length);
+  ELEMENT_TYPES.forEach((type, index) => {
+    const insigne = buildInsigne(type);
+    for (let y = 0; y < INSIGNE_SIZE; y++) {
+      for (let x = 0; x < INSIGNE_SIZE; x++) {
+        const source = (y * INSIGNE_SIZE + x) * 4;
+        const cible = ((index * INSIGNE_SIZE + y) * INSIGNE_SIZE + x) * 4;
+        for (let canal = 0; canal < 4; canal++) {
+          sheet.data[cible + canal] = insigne.data[source + canal]!;
+        }
+      }
+    }
+  });
+  return sheet;
 }
 
 /** Toutes les plaques empilées : une ligne par type, dans l'ordre de `ELEMENT_TYPES`. */
