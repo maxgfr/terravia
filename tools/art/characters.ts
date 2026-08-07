@@ -10,6 +10,7 @@
  * les deux doublerait la planche pour rien.
  */
 
+import { CHARACTER_IDS, type CharacterId } from '../../src/world/characterIds.ts';
 import {
   createSurface,
   fillEllipse,
@@ -40,20 +41,7 @@ export interface CharacterLook {
   readonly coiffe?: Color;
 }
 
-export const CHARACTER_IDS = [
-  'heros',
-  'professeur',
-  'villageois',
-  'villageoise',
-  'dresseur',
-  'dresseuse',
-  'marchand',
-  'soigneuse',
-  'champion',
-  'randonneur',
-] as const;
-
-export type CharacterId = (typeof CHARACTER_IDS)[number];
+export { CHARACTER_IDS, type CharacterId } from '../../src/world/characterIds.ts';
 
 export const CHARACTER_LOOKS: Record<CharacterId, CharacterLook> = {
   heros: {
