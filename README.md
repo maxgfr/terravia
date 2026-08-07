@@ -21,6 +21,22 @@ inventaire, progression. Pas une seule tuile.
 `public/art/`, qui sont commités. On peut les regarder dans GitHub, en retoucher un, et
 voir un diff d'art en revue de code.
 
+## Jouer
+
+**Clavier** — flèches ou ZQSD pour se déplacer, `Entrée` / `E` pour parler et valider,
+`Échap` pour revenir, `M` pour le menu.
+**Tactile** — une croix directionnelle et deux boutons apparaissent sur les écrans sans
+souris.
+
+Une partie tient en une boucle courte : sortir du bourg avec sa créature de départ,
+traverser sept régions en capturant et en battant des dresseurs, puis passer l'arène.
+Le monde change à chaque seed ; celle de la partie en cours s'affiche dans le menu.
+
+## Contenu
+
+30 créatures en 12 lignées · 12 types avec quatre immunités · 53 attaques · 16 talents
+passifs · 8 régions · cycle jour/nuit qui change les rencontres.
+
 ## Démarrer
 
 ```bash
@@ -48,6 +64,23 @@ Trois couches, chacune testable seule :
 La règle qui tient l'ensemble : **l'interface de combat ne connaît aucune règle de combat**.
 Le moteur renvoie une liste d'événements (`damage`, `faint`, `message`) que l'interface joue
 en animation. Un combat entier se teste donc sans navigateur, et se rejoue à l'identique.
+
+## Tests
+
+205 tests, exécutés en intégration continue avant chaque déploiement. Les plus utiles ne
+vérifient pas des détails mais des **invariants** :
+
+- aucune seed ne produit une région dont la sortie est inatteignable — vérifié sur 60 seeds ;
+- tout combat se termine, quelles que soient les deux créatures engagées ;
+- une partie exportée puis réimportée redonne un état identique, et le monde se
+  reconstruit octet pour octet depuis la seed ;
+- chaque caractère des textes du jeu existe dans la police, dans les deux langues ;
+- une créature de départ gagne plus de 60 % de ses combats sur la première route, et le
+  champion reste un mur à niveau 12 tout en étant franchissable à 42.
+
+Un test de fumée joue les écrans avec un canvas simulé — démarrage, choix du starter,
+déplacement, menus, combat complet — pour attraper les erreurs d'affichage qu'aucun test
+de logique ne verrait.
 
 ## Sauvegarde et échange
 
