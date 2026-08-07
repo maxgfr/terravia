@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0d1117" />
+    <meta
+      name="description"
+      content="Terravia — RPG de capture de créatures dans un monde généré procéduralement. Jouable dans le navigateur, sauvegarde exportable en JSON."
+    />
+    <title>Terravia</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0f14;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        -webkit-font-smoothing: antialiased;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior: none;
+        touch-action: none;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+        touch-action: none;
+      }
+      /* Écran affiché avant que le JS ne prenne la main, et si le JS échoue. */
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: #7d8590;
+        font-size: 14px;
+        letter-spacing: 0.1em;
+        pointer-events: none;
+        transition: opacity 0.3s;
+      }
+      #boot.gone {
+        opacity: 0;
+      }
+      noscript {
+        color: #e6edf3;
+        text-align: center;
+        padding: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="boot">TERRAVIA</div>
+    <noscript>
+      <div style="position: fixed; inset: 0; display: grid; place-items: center">
+        Terravia a besoin de JavaScript pour fonctionner.
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

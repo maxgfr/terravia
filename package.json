@@ -1,0 +1,24 @@
+{
+  "name": "terravia",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RPG de capture de créatures, monde généré procéduralement, 100% statique",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "art": "node tools/art/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vitest": "^3.2.4"
+  }
+}
