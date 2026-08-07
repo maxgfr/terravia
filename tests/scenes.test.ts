@@ -17,10 +17,14 @@ import { Jeu } from '../src/game/jeu.ts';
 import { creerCreature } from '../src/game/creature.ts';
 import {
   accueillirCreature,
+  ajouterObjet,
   creerPartie,
   donnerBadge,
+  marquerVu,
   poserDrapeau,
   prochainIdentifiant,
+  quantite,
+  sacTrie,
   typesDesBadges,
 } from '../src/game/state.ts';
 import { makeRng } from '../src/core/rng.ts';
@@ -30,11 +34,12 @@ import { SceneOverworld } from '../src/scenes/overworld.ts';
 import { SceneMenu } from '../src/scenes/menu.ts';
 import { SceneCombat } from '../src/scenes/combat.ts';
 import { CHARACTER_IDS } from '../src/world/characterIds.ts';
-import { ELEMENT_TYPES, type ElementType } from '../src/data/types.ts';
+import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../src/data/types.ts';
 import { ITEM_IDS } from '../src/data/items.ts';
 import { SPECIES, SPECIES_IDS } from '../src/data/species.ts';
 import { experienceForLevel } from '../src/data/stats.ts';
-import { TILE_IDS } from '../src/world/tiles.ts';
+import { TILES, TILE_IDS } from '../src/world/tiles.ts';
+import { lireTuile } from '../src/world/region.ts';
 
 import { badgeDe, creerMonde, toutesLesArenesVaincues } from '../src/world/worldgen.ts';
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../src/core/viewport.ts';
@@ -901,6 +906,232 @@ describe('reprise d’un combat interrompu', () => {
     );
     const repris = reprendre(JSON.stringify(banc.jeu.documentDePartie()));
     expect(repris.jeu.sommet?.nom).toBe('overworld');
+  });
+});
+
+describe('fiche du Terradex', () => {
+  /**
+   * La table des types décide de chaque combat et n'était consultable nulle part : il
+   * fallait la deviner coup par coup. Le Terradex n'était qu'une liste de noms.
+   */
+  function bancTerradex(langue: 'fr' | 'en' = 'fr'): Banc {
+    const banc = creerBanc(langue);
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(97), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 10,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneMenu());
+    return banc;
+  }
+
+  /** Ouvre l'onglet Terradex depuis la racine du menu. */
+  async function ouvrirTerradex(banc: Banc): Promise<void> {
+    for (let i = 0; i < 4; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+  }
+
+  it('n’ouvre la fiche que d’une espèce déjà rencontrée', async () => {
+    const banc = bancTerradex();
+    // Folianz est au Terradex parce qu'on l'a reçue ; la deuxième espèce, non.
+    expect(banc.jeu.state.progression.terradexVus).toContain('folianz');
+    await ouvrirTerradex(banc);
+
+    // Le curseur démarre sur la première espèce de la liste, folianz.
+    await banc.agir('valider', 1);
+    appelsDessin = 0;
+    banc.trame();
+    expect(appelsDessin, 'la fiche doit dessiner quelque chose').toBeGreaterThan(20);
+
+    // On revient, puis on vise une espèce jamais croisée : rien ne s'ouvre.
+    await banc.agir('annuler', 1);
+    const inconnue = SPECIES_IDS.findIndex((id) => !banc.jeu.state.progression.terradexVus.includes(id));
+    expect(inconnue).toBeGreaterThan(0);
+    for (let i = 0; i < inconnue; i++) await banc.agir('sud', 1);
+    textesDessines = [];
+    await banc.agir('valider', 1);
+    banc.trame();
+    expect(textesDessines.join(' '), 'une espèce inconnue reste masquée').toContain(
+      banc.jeu.t('terradex.inconnu'),
+    );
+  });
+
+  it('calcule les faiblesses sur la combinaison de types, pas type par type', async () => {
+    const banc = bancTerradex();
+    // Sylvanor est Sylve/Lumière : ses faiblesses sont celles du couple.
+    marquerVu(banc.jeu.state, 'sylvanor');
+    await ouvrirTerradex(banc);
+    const index = SPECIES_IDS.indexOf('sylvanor');
+    for (let i = 0; i < index; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+
+    textesDessines = [];
+    banc.trame();
+    const affiche = textesDessines.join(' ');
+    // Le double type Sylve/Lumière encaisse l'Onde : Sylve y résiste et Lumière est
+    // neutre. Une lecture type par type l'aurait rangée en faiblesse.
+    expect(effectivenessAgainst('onde', SPECIES.sylvanor.types)).toBeLessThan(1);
+    expect(affiche).toContain(banc.jeu.t('terradex.resistances'));
+    expect(affiche).toContain(banc.jeu.t('terradex.faiblesses'));
+  });
+
+  it('tient dans le cadre dans les deux langues', async () => {
+    for (const langue of LANGUES) {
+      const banc = bancTerradex(langue);
+      // Une espèce à double type et longue description : le pire cas d'encombrement.
+      marquerVu(banc.jeu.state, 'nyxaris');
+      await ouvrirTerradex(banc);
+      const index = SPECIES_IDS.indexOf('nyxaris');
+      for (let i = 0; i < index; i++) await banc.agir('sud', 1);
+      await banc.agir('valider', 1);
+
+      debordements = [];
+      banc.trame();
+      expect(debordements.map((d) => `${langue} : ${d.texte}`)).toEqual([]);
+    }
+  });
+});
+
+describe('objets clés', () => {
+  /** Une partie posée dans une région, avec une créature debout. */
+  function bancDansLeMonde(seedText = 'brume-3f7a'): Banc {
+    const banc = creerBanc();
+    banc.jeu.chargerPartie(creerPartie(seedText, 'fr'));
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(95), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 20,
+        origine: seedText,
+      }),
+    );
+    return banc;
+  }
+
+  /**
+   * Poste le joueur face à une étendue d'eau, dans la première région qui en a une.
+   * Rend `null` si aucune n'en contient — la pêche n'a alors rien à éprouver.
+   */
+  function posterAuBordDeLEau(banc: Banc): boolean {
+    for (const plan of banc.jeu.monde.plans) {
+      const region = banc.jeu.monde.region(plan.index);
+      for (let y = 1; y < region.height - 1; y++) {
+        for (let x = 1; x < region.width - 1; x++) {
+          if (lireTuile(region, x, y) !== 'eau') continue;
+          // Une case franchissable juste au sud de l'eau : on regardera vers le nord.
+          if (TILES[lireTuile(region, x, y + 1)].solid) continue;
+          if (region.entites.some((e) => e.x === x && e.y === y + 1)) continue;
+          banc.jeu.state.joueur.regionIndex = plan.index;
+          banc.jeu.state.joueur.x = x;
+          banc.jeu.state.joueur.y = y + 1;
+          banc.jeu.state.joueur.direction = 'nord';
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  it('ne pêche rien sans la canne, mais explique pourquoi', async () => {
+    const banc = bancDansLeMonde();
+    expect(posterAuBordDeLEau(banc), 'aucune eau trouvée dans ce monde').toBe(true);
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+
+    await banc.agir('valider', 2);
+    expect(banc.jeu.sommet?.nom, 'sans canne, pas de combat').toBe('overworld');
+    expect(banc.jeu.dialogue.actif, 'le refus doit se dire').toBe(true);
+  });
+
+  it('remonte une créature de rivière avec la canne', async () => {
+    const banc = bancDansLeMonde();
+    expect(posterAuBordDeLEau(banc)).toBe(true);
+    ajouterObjet(banc.jeu.state, 'canne', 1);
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+
+    // Le lancer accroche sept fois sur dix : on insiste jusqu'à ce que ça morde.
+    for (let essai = 0; essai < 20 && banc.jeu.sommet?.nom !== 'combat'; essai++) {
+      await banc.agir('valider', 4);
+    }
+    expect(banc.jeu.sommet?.nom, 'la canne doit finir par accrocher').toBe('combat');
+
+    // Et la prise sort bien de la faune aquatique, pas de celle du biome traversé.
+    const prise = banc.jeu.state.combat!.adversaires[0]!;
+    expect(SPECIES[prise.speciesId].habitats).toContain('riviere');
+  });
+
+  it('fait évoluer la créature choisie avec la Pierre d’Éveil', async () => {
+    const banc = bancDansLeMonde();
+    ajouterObjet(banc.jeu.state, 'pierreEvolution', 1);
+    const avant = banc.jeu.state.equipe[0]!.speciesId;
+    const attendue = SPECIES[avant].evolution!.vers;
+    banc.jeu.pousser(new SceneMenu());
+
+    // Racine : Équipe, Réserve, Sac.
+    await banc.agir('sud', 1);
+    await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+    // Le sac trie les objets clés en dernier ; la pierre est seule de son espèce ici.
+    const sac = sacTrie(banc.jeu.state);
+    const index = sac.findIndex((entree) => entree.item === 'pierreEvolution');
+    expect(index, 'la pierre doit être dans le sac').toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < index; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 2);
+    // La question s'ouvre. La première pression achève le défilement du texte, la
+    // seconde valide la créature surlignée — la première de la liste.
+    await banc.agir('valider', 2);
+    await banc.agir('valider', 2);
+
+    expect(banc.jeu.state.equipe[0]!.speciesId).toBe(attendue);
+    expect(quantite(banc.jeu.state, 'pierreEvolution'), 'la pierre est consommée').toBe(0);
+  });
+
+  it('refuse la Pierre d’Éveil quand aucune créature ne peut évoluer', async () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      // Sylvanor est un bout de lignée : rien devant lui.
+      creerCreature(makeRng(96), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'sylvanor',
+        niveau: 40,
+        origine: 'brume-3f7a',
+      }),
+    );
+    ajouterObjet(banc.jeu.state, 'pierreEvolution', 1);
+    banc.jeu.pousser(new SceneMenu());
+
+    await banc.agir('sud', 1);
+    await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+    const index = sacTrie(banc.jeu.state).findIndex((e) => e.item === 'pierreEvolution');
+    for (let i = 0; i < index; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 2);
+
+    expect(banc.jeu.state.equipe[0]!.speciesId, 'rien ne doit évoluer').toBe('sylvanor');
+    expect(quantite(banc.jeu.state, 'pierreEvolution'), 'ni être consommé').toBe(1);
+  });
+
+  it('n’ouvre la carte qu’avec la carte', async () => {
+    const banc = bancDansLeMonde();
+    banc.jeu.pousser(new SceneMenu());
+
+    // Racine : Équipe, Réserve, Sac, Carte.
+    for (let i = 0; i < 3; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+    expect(banc.jeu.sommet?.nom, 'sans l’objet, l’écran reste fermé').toBe('menu');
+    expect(banc.jeu.dialogue.actif).toBe(true);
+    banc.jeu.dialogue.vider();
+
+    ajouterObjet(banc.jeu.state, 'carte', 1);
+    await banc.agir('valider', 1);
+    expect(banc.jeu.sommet?.nom).toBe('carte');
   });
 });
 

@@ -221,6 +221,11 @@ const FR = {
   // ── Terradex ───────────────────────────────────────────────────────────────
   'terradex.progression': '{vus} / {total} rencontrés · {captures} capturés',
   'terradex.inconnu': '???',
+  'terradex.faiblesses': 'Craint',
+  'terradex.resistances': 'Encaisse',
+  'terradex.aucun': '—',
+  'terradex.habitat': 'Vit en {biomes}',
+  'terradex.consulter': 'Valider : fiche de l’espèce',
 
   // ── Boutique et soins ──────────────────────────────────────────────────────
   'boutique.titre': 'Boutique',
@@ -474,6 +479,11 @@ const EN: Record<CleTexte, string> = {
 
   'terradex.progression': '{vus} / {total} seen · {captures} caught',
   'terradex.inconnu': '???',
+  'terradex.faiblesses': 'Weak to',
+  'terradex.resistances': 'Shrugs off',
+  'terradex.aucun': '—',
+  'terradex.habitat': 'Lives in {biomes}',
+  'terradex.consulter': 'Confirm: species entry',
 
   'boutique.titre': 'Shop',
   'boutique.quitter': 'Leave',

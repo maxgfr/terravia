@@ -405,6 +405,16 @@ describe('génération des régions', () => {
         // Et pas deux fois la même créature : c'est un champion, pas une collection.
         const especes = champion.equipe.map((membre) => membre.species);
         expect(new Set(especes).size, `${contexte} : ${especes.join(', ')}`).toBe(especes.length);
+
+        // Son escorte s'étale sur plusieurs niveaux, la tête d'affiche au sommet. C'est
+        // ce qui rend disponibles les stades intermédiaires — sans quoi la flamme et la
+        // foudre, qui n'ont qu'une lignée, ne proposaient qu'une seule forme.
+        const niveaux = champion.equipe.map((membre) => membre.niveau);
+        const vedette = niveaux.at(-1)!;
+        expect(Math.max(...niveaux), `${contexte} : ${niveaux.join(', ')}`).toBe(vedette);
+        expect(new Set(niveaux).size, `${contexte} : ${niveaux.join(', ')}`).toBeGreaterThan(1);
+        // Mais jamais de nouveau-né derrière un champion : l'écart reste proportionné.
+        expect(Math.min(...niveaux), contexte).toBeGreaterThanOrEqual(Math.floor(vedette * 0.6));
       }
     }
   });

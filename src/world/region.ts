@@ -657,8 +657,17 @@ const genererArene: Generateur = (contexte, portes) => {
   // Un registre unique pour toutes les passes : sans lui, la créature tirée dans la
   // région pouvait doubler celle tirée dans la spécialité.
   const dejaLa = new Set<SpeciesId>([vedette]);
+  // L'escorte s'étale sur plusieurs niveaux au lieu de se masser juste sous la vedette.
+  // C'est ce qui rend disponibles les **stades intermédiaires** : la flamme et la foudre
+  // n'ont qu'une lignée chacune, et une escorte au même niveau qu'elle n'en proposait
+  // qu'une seule forme. Un champion élève des créatures d'âges différents.
+  // L'écart est proportionnel : sept niveaux sous une arène de niveau 35 se lit comme
+  // une équipe d'âges variés, sous une arène de niveau 13 comme un champion qui
+  // promène des nouveau-nés.
+  const ecart = Math.max(2, Math.round(plan.niveaux.max * 0.2));
   const escorte = [
-    ...composerEquipe(rng, plan, 2, -1, specialite, dejaLa),
+    ...composerEquipe(rng, plan, 1, -ecart, specialite, dejaLa),
+    ...composerEquipe(rng, plan, 1, -Math.max(1, Math.round(ecart / 2)), specialite, dejaLa),
     ...composerEquipe(rng, plan, 1, -1, undefined, dejaLa),
   ];
   const champion = { x: centreX, y: 9 };

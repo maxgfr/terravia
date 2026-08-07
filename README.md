@@ -102,7 +102,7 @@ You can also export a single creature and import it into another game.
 
 ## Tests
 
-274 tests, run in continuous integration before every deploy. The useful ones don't check
+282 tests, run in continuous integration before every deploy. The useful ones don't check
 details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;
@@ -118,7 +118,12 @@ details, they check **invariants** — which matters more now that the world its
 - **the last champion falls in over 90 % of worlds** to a level-appropriate team of six,
   and still beats one that stayed ten levels behind — measured by simulating the whole
   trainer battle against the champion the world actually generated;
-- no trainer fields a creature that should have evolved at that level;
+- no trainer fields a creature that should have evolved at that level, no champion
+  fields the same creature twice, and its team spans several levels so that thin
+  lineages still contribute their middle stages;
+- fishing brings up river fauna and only with the rod; the Waking Stone evolves the
+  creature you point it at and refuses when none can; the map screen stays shut until
+  you find the map;
 - a battle interrupted by closing the tab comes back exactly as it was;
 - every battle terminates, whichever two creatures are involved;
 - an exported then reimported game returns an identical state, and the world rebuilds

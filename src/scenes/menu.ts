@@ -9,7 +9,9 @@
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/viewport.ts';
 import { ITEMS } from '../data/items.ts';
 import { MOVES } from '../data/moves.ts';
-import { SPECIES, SPECIES_IDS } from '../data/species.ts';
+import { SPECIES, SPECIES_IDS, type SpeciesId } from '../data/species.ts';
+import { BIOME_NAMES } from '../data/biomes.ts';
+import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../data/types.ts';
 import { STAT_KEYS, experienceForLevel } from '../data/stats.ts';
 import { TALENTS } from '../data/talents.ts';
 import { evoluer, pvMax, type CreatureInstance } from '../game/creature.ts';
@@ -37,7 +39,22 @@ import { traiterImport } from './partie.ts';
 /** Lignes de réserve affichées d'un coup dans la colonne de droite. */
 const LIGNES_RESERVE = 8;
 
-type Onglet = 'racine' | 'equipe' | 'fiche' | 'reserve' | 'sac' | 'terradex' | 'sauvegarde';
+/**
+ * Les types qui frappent fort cette combinaison, et ceux qu'elle encaisse.
+ *
+ * Le calcul porte sur la combinaison entière, pas type par type : un Onde/Métal résiste
+ * à ce que ses deux types résistent, et une double faiblesse annule une résistance.
+ * C'est ce que le joueur subit réellement en combat.
+ */
+function faiblessesDe(types: readonly ElementType[]): ElementType[] {
+  return ELEMENT_TYPES.filter((attaque) => effectivenessAgainst(attaque, types) > 1);
+}
+
+function resistancesDe(types: readonly ElementType[]): ElementType[] {
+  return ELEMENT_TYPES.filter((attaque) => effectivenessAgainst(attaque, types) < 1);
+}
+
+type Onglet = 'racine' | 'equipe' | 'fiche' | 'reserve' | 'sac' | 'terradex' | 'espece' | 'sauvegarde';
 
 const ENTREES_RACINE = [
   'menu.equipe',
@@ -63,6 +80,8 @@ export class SceneMenu implements Scene {
   private onglet: Onglet = 'racine';
   private selection = 0;
   private fiche: CreatureInstance | null = null;
+  /** Espèce dont la fiche du Terradex est ouverte. */
+  private especeVue: SpeciesId | null = null;
   private defilement = 0;
   /** Colonne active de l'écran de réserve, et curseur de la colonne de droite. */
   private cote: 'equipe' | 'reserve' = 'equipe';
@@ -92,6 +111,9 @@ export class SceneMenu implements Scene {
         break;
       case 'terradex':
         this.terradex(jeu);
+        break;
+      case 'espece':
+        this.espece(jeu);
         break;
       case 'sauvegarde':
         this.sauvegarde(jeu);
@@ -294,7 +316,32 @@ export class SceneMenu implements Scene {
   private terradex(jeu: Jeu): void {
     this.naviguer(jeu, SPECIES_IDS.length);
     this.defilement = Math.max(0, Math.min(this.selection - 6, SPECIES_IDS.length - 13));
-    if (jeu.entrees.pressee('annuler')) this.aller('racine');
+    if (jeu.entrees.pressee('annuler')) {
+      this.aller('racine');
+      return;
+    }
+    // On n'ouvre la fiche que d'une espèce déjà croisée : le Terradex ne dévoile pas
+    // ce qu'on n'a pas rencontré, c'est tout son intérêt.
+    if (!jeu.entrees.pressee('valider')) return;
+    const species = SPECIES_IDS[this.selection];
+    if (species && jeu.state.progression.terradexVus.includes(species)) {
+      this.especeVue = species;
+      this.onglet = 'espece';
+    }
+  }
+
+  /**
+   * Fiche d'une espèce rencontrée : à quoi elle ressemble, ce qui la met en danger, ce
+   * qu'elle encaisse.
+   *
+   * Le Terradex n'était qu'une liste de noms. La table des types est pourtant le cœur
+   * des combats, et rien dans le jeu ne permettait de la consulter — il fallait la
+   * deviner coup par coup.
+   */
+  private espece(jeu: Jeu): void {
+    if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('valider')) {
+      this.onglet = 'terradex';
+    }
   }
 
   private sauvegarde(jeu: Jeu): void {
@@ -367,6 +414,9 @@ export class SceneMenu implements Scene {
         break;
       case 'terradex':
         this.dessinerTerradex(jeu);
+        break;
+      case 'espece':
+        this.dessinerEspece(jeu);
         break;
       case 'sauvegarde':
         this.dessinerSauvegarde(jeu);
@@ -587,6 +637,62 @@ export class SceneMenu implements Scene {
         capture ? '♦' : connu ? '·' : '',
       );
     }
+    jeu.peintre.texte(jeu.t('terradex.consulter'), 18, VIRTUAL_HEIGHT - 24, {
+      couleur: COULEURS.texteAttenue,
+    });
+  }
+
+  /**
+   * Fiche d'espèce : le seul endroit du jeu où consulter la table des types.
+   *
+   * Elle décide de chaque combat et n'était affichée nulle part — il fallait la deviner
+   * coup par coup. Les forces et faiblesses sont calculées, jamais écrites : ajouter un
+   * type à la table les met à jour ici sans y toucher.
+   */
+  private dessinerEspece(jeu: Jeu): void {
+    const id = this.especeVue;
+    if (!id) return;
+    const species = SPECIES[id];
+    const peintre = jeu.peintre;
+    const capture = jeu.state.progression.terradexCaptures.includes(id);
+
+    this.cadre(
+      jeu,
+      `${String(species.numero).padStart(2, '0')}  ${jeu.nomEspece(id)}${capture ? '  ♦' : ''}`,
+    );
+
+    peintre.creature(id, 'face', 16, 28, { echelle: 0.85 });
+    species.types.forEach((type, index) => {
+      peintre.plaqueType(type, jeu.nomType(type), 78 + index * (peintre.largeurPlaque + 4), 30);
+    });
+    peintre.texte(
+      jeu.t('fiche.taille', { taille: species.taille.toFixed(1), poids: species.poids.toFixed(1) }),
+      78,
+      46,
+      { couleur: COULEURS.texteAttenue },
+    );
+    peintre.texte(jeu.t('terradex.habitat', { biomes: species.habitats.map((b) => BIOME_NAMES[b][jeu.langue]).join(', ') }), 78, 58, {
+      couleur: COULEURS.texteAttenue,
+    });
+
+    // Faiblesses et résistances, en plaques de type : plus lisibles qu'une énumération.
+    const rangee = (libelle: string, types: readonly ElementType[], y: number): void => {
+      peintre.texte(libelle, 16, y, { couleur: COULEURS.texteAccent });
+      if (types.length === 0) {
+        peintre.texte(jeu.t('terradex.aucun'), 16, y + 11, { couleur: COULEURS.texteAttenue });
+        return;
+      }
+      types.slice(0, 5).forEach((type, index) => {
+        peintre.plaqueType(type, jeu.nomType(type), 16 + index * (peintre.largeurPlaque + 3), y + 10);
+      });
+    };
+    rangee(jeu.t('terradex.faiblesses'), faiblessesDe(species.types), 76);
+    rangee(jeu.t('terradex.resistances'), resistancesDe(species.types), 102);
+
+    peintre.texteBloc(species.description[jeu.langue], 16, 130, VIRTUAL_WIDTH - 40, {
+      couleur: COULEURS.texte,
+    });
+    peintre.texte(jeu.t('aide.fermer'), 18, VIRTUAL_HEIGHT - 22, { couleur: COULEURS.texteAttenue });
   }
 
   private dessinerSauvegarde(jeu: Jeu): void {
