@@ -18,6 +18,7 @@ import { nomFichier } from '../save/serialize.ts';
 import { choisirFichier, enregistrerLanguePreferee, telecharger } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
 import { SceneAide } from './aide.ts';
+import { SceneEncyclopedie } from './encyclopedie.ts';
 import { traiterImport } from './partie.ts';
 import { SceneTitre } from './titre.ts';
 
@@ -39,6 +40,7 @@ export class SceneParametres implements Scene {
       ...(exportable ? (['sauvegarde.exporter'] as const) : []),
       'sauvegarde.importer',
       'parametres.commentJouer',
+      'encyclopedie.titre',
       // Repartir sur une autre seed sans avoir à finir la partie : c'est la promesse du
       // jeu, et il n'existait aucun chemin pour y revenir hormis recharger la page.
       ...(exportable ? (['parametres.recommencer'] as const) : []),
@@ -78,6 +80,9 @@ export class SceneParametres implements Scene {
         break;
       case 'parametres.commentJouer':
         jeu.pousser(new SceneAide());
+        break;
+      case 'encyclopedie.titre':
+        jeu.pousser(new SceneEncyclopedie());
         break;
       case 'parametres.recommencer':
         void this.retournerAuTitre(jeu);

@@ -35,7 +35,7 @@ import { SceneMenu } from '../src/scenes/menu.ts';
 import { SceneCombat } from '../src/scenes/combat.ts';
 import { CHARACTER_IDS } from '../src/world/characterIds.ts';
 import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../src/data/types.ts';
-import { ITEM_IDS } from '../src/data/items.ts';
+import { ITEMS, ITEM_IDS } from '../src/data/items.ts';
 import { SPECIES, SPECIES_IDS } from '../src/data/species.ts';
 import { experienceForLevel } from '../src/data/stats.ts';
 import { TILES, TILE_IDS } from '../src/world/tiles.ts';
@@ -47,6 +47,8 @@ import { PAGES_AIDE, SceneAide } from '../src/scenes/aide.ts';
 import { SceneParametres } from '../src/scenes/parametres.ts';
 import { SceneCarte } from '../src/scenes/carte.ts';
 import { SceneFin } from '../src/scenes/fin.ts';
+import { SceneEncyclopedie } from '../src/scenes/encyclopedie.ts';
+import { MOVE_IDS } from '../src/data/moves.ts';
 import { LANGUES } from '../src/i18n/index.ts';
 import { entrerDansLaPartie } from '../src/scenes/partie.ts';
 import { chargerDepuisTexte, exporterPartie } from '../src/save/serialize.ts';
@@ -928,6 +930,79 @@ describe('reprise d’un combat interrompu', () => {
     );
     const repris = reprendre(JSON.stringify(banc.jeu.documentDePartie()));
     expect(repris.jeu.sommet?.nom).toBe('overworld');
+  });
+});
+
+describe('encyclopédie', () => {
+  /**
+   * Le Terradex ne montre que ce qu'on a rencontré, et c'est son intérêt. Restait sans
+   * réponse : quelles attaques existent, à quoi sert cet objet, où trouver de quoi
+   * capturer. L'encyclopédie décrit le jeu, pas la partie.
+   */
+  it('parcourt les trois rayons et dessine chaque fiche', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneEncyclopedie());
+
+    for (const rayon of ['créatures', 'attaques', 'objets']) {
+      appelsDessin = 0;
+      banc.trame();
+      expect(appelsDessin, `rayon ${rayon}`).toBeGreaterThan(20);
+      // Quelques entrées de chaque rayon, pour éprouver leurs détails.
+      for (let i = 0; i < 5; i++) await banc.agir('sud', 1);
+      await banc.agir('est', 1);
+    }
+  });
+
+  it('couvre l’intégralité de chaque catalogue sans trou ni débordement', async () => {
+    for (const langue of LANGUES) {
+      const banc = creerBanc(langue);
+      banc.jeu.pousser(new SceneEncyclopedie());
+      debordements = [];
+
+      // Chaque rayon est parcouru en entier : une fiche sur quarante qui déborde ne se
+      // verrait pas autrement.
+      for (const total of [SPECIES_IDS.length, MOVE_IDS.length, ITEM_IDS.length]) {
+        for (let i = 0; i < total; i++) {
+          banc.trame();
+          banc.entrees.presser('sud');
+          banc.trame();
+        }
+        banc.entrees.presser('est');
+        banc.trame();
+      }
+      expect(debordements.map((d) => `${langue} : ${d.texte}`)).toEqual([]);
+    }
+  });
+
+  it('dit où se procurer chaque objet', () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneEncyclopedie());
+    // Deux pressions vers la droite : rayon des objets.
+    for (let i = 0; i < 2; i++) {
+      banc.entrees.presser('est');
+      banc.trame();
+    }
+    // Le prisme est en boutique ; le joueur qui cherche « où sont les prismes » doit
+    // trouver la réponse ici.
+    const index = ITEM_IDS.indexOf('prisme');
+    for (let i = 0; i < index; i++) {
+      banc.entrees.presser('sud');
+      banc.trame();
+    }
+    textesDessines = [];
+    banc.trame();
+    expect(textesDessines.join(' ')).toContain(
+      banc.jeu.t('encyclopedie.enBoutique', { prix: ITEMS.prisme.prix }),
+    );
+  });
+
+  it('s’ouvre depuis les réglages', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneParametres());
+    // Sans partie : Langue, Importer, Comment jouer, Encyclopédie, Retour.
+    for (let i = 0; i < 3; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+    expect(banc.jeu.sommet?.nom).toBe('encyclopedie');
   });
 });
 

@@ -539,6 +539,16 @@ export class SceneMenu implements Scene {
       peintre.texteDroite(`${slot.pp}/${move.pp}`, VIRTUAL_WIDTH - 20, y, { couleur: COULEURS.texteAttenue });
     });
 
+    // La description de l'espèce, quand la hauteur d'écran laisse la place sous les
+    // attaques. Elle vit dans les données depuis toujours et ne s'affichait qu'au
+    // Terradex, jamais sur sa propre créature.
+    const apresAttaques = 138 + creature.moves.length * 12 + 6;
+    if (VIRTUAL_HEIGHT - apresAttaques > 40) {
+      peintre.texteBloc(species.description[jeu.langue], 16, apresAttaques, VIRTUAL_WIDTH - 40, {
+        couleur: COULEURS.texteAttenue,
+      });
+    }
+
     peintre.texte(jeu.t('aide.fermer'), 18, VIRTUAL_HEIGHT - 22, { couleur: COULEURS.texteAttenue });
   }
 
@@ -609,13 +619,28 @@ export class SceneMenu implements Scene {
       jeu.peintre.texte(jeu.t('menu.vide'), 28, 34, { couleur: COULEURS.texteAttenue });
       return;
     }
-    // Le nombre de lignes se déduit de la place : l'écran n'a plus une hauteur fixe.
-    const visibles = Math.max(4, Math.floor((VIRTUAL_HEIGHT - 60) / 13));
+    // La description de l'objet sélectionné occupe le bas du cadre : les lignes se
+    // comptent sur ce qui reste au-dessus.
+    const hauteurDescription = 34;
+    const visibles = Math.max(3, Math.floor((VIRTUAL_HEIGHT - 60 - hauteurDescription) / 13));
     objets.slice(0, visibles).forEach((entree, index) => {
       const y = 32 + index * 13;
       jeu.peintre.icone(entree.item, 26, y - 4);
       this.ligne(jeu, `   ${jeu.nomObjet(entree.item)}`, y, index === this.selection, `× ${entree.nombre}`);
     });
+
+    // Chaque objet porte une description dans les données, et rien ne l'affichait :
+    // le joueur devait deviner ce que faisait une Panacée avant de la consommer.
+    const choisi = objets[this.selection];
+    if (choisi) {
+      jeu.peintre.texteBloc(
+        ITEMS[choisi.item].description[jeu.langue],
+        18,
+        VIRTUAL_HEIGHT - hauteurDescription,
+        VIRTUAL_WIDTH - 40,
+        { couleur: COULEURS.texteAttenue },
+      );
+    }
   }
 
   private dessinerTerradex(jeu: Jeu): void {
