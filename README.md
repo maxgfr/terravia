@@ -138,9 +138,9 @@ outside the frame fails the build instead of shipping.
 
 - **No building interiors.** Doors are scenery and services keep an outdoor stall.
   Modelling interiors would have doubled the world code for little gain.
-- **Integer scaling only.** The canvas scales by whole numbers so pixels stay square.
-  The virtual width adapts to the screen so the game fills it, but the view is capped:
-  on an ultrawide display, margins come back rather than showing half a region at once.
+- **Integer scaling only.** The canvas scales by whole numbers so pixels stay square;
+  both virtual dimensions adapt so the game fills the screen instead of floating in
+  black bands. The only margin left is the remainder of an integer division.
 - **Trading is trust-based**, as described above.
 
 ## Licence

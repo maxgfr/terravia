@@ -4,60 +4,66 @@
  * Le rendu se fait dans une résolution virtuelle agrandie par un facteur **entier** :
  * c'est ce qui garde les pixels carrés, sans flou d'interpolation.
  *
- * La hauteur est fixe — toute la mise en page verticale y est réglée. La **largeur**,
- * elle, s'adapte au format de l'écran. Avec une largeur figée à 320, un écran 16:9
- * laissait 160 pixels de marge noire de chaque côté en 1080p, et 320 en 1440p : le jeu
- * flottait au milieu de la page. Élargir la vue plutôt que grossir les pixels remplit
- * l'écran sans rien déformer, et montre simplement un peu plus de monde.
+ * Les **deux dimensions** s'adaptent au format de l'écran. Figées à 320×208, elles
+ * laissaient 160 pixels de marge noire de chaque côté en 1080p et 320 en 1440p, et sur
+ * un téléphone en portrait le jeu occupait le tiers supérieur de la page. Élargir la
+ * vue plutôt que grossir les pixels remplit l'écran sans rien déformer : on voit
+ * simplement un peu plus de monde.
  *
  * Aucune scène ne code sa mise en page en dur : toutes lisent ces constantes, ce qui
- * rend la largeur variable sans surprise. Les liaisons de module ESM étant vivantes,
- * une réaffectation ici se propage à tous les appelants.
+ * rend les dimensions variables sans surprise. Les liaisons de module ESM étant
+ * vivantes, une réaffectation ici se propage à tous les appelants.
  */
 
-/** Hauteur virtuelle, invariable : 13 tuiles de 16 pixels. */
-export const VIRTUAL_HEIGHT = 208;
 export const TILE_SIZE = 16;
 
-/** Bornes de la largeur virtuelle, en pixels. */
-const LARGEUR_MIN = 320;
 /**
- * Au-delà, la vue s'étire sans profit : sur un écran ultra-large, on verrait la moitié
- * de la région d'un coup et les panneaux d'interface se perdraient dans le vide.
+ * Bornes des dimensions virtuelles, en pixels.
+ *
+ * Les minimums sont ceux pour lesquels chaque écran a été dessiné : en dessous, les
+ * panneaux ne tiendraient plus. Les maximums ne sont qu'un garde-fou : ils ne mordent
+ * qu'à l'échelle 1, donc sur téléphone, là où remplir l'écran importe le plus. Aux
+ * échelles supérieures, c'est le facteur entier qui borne naturellement la vue.
  */
-const LARGEUR_MAX = 448;
+const LARGEUR_MIN = 320;
+const LARGEUR_MAX = 1024;
+const HAUTEUR_MIN = 208;
+const HAUTEUR_MAX = 1024;
 
 /**
- * Largeur virtuelle courante. Variable, mais jamais pendant une trame : elle ne change
- * qu'au redimensionnement de la fenêtre.
+ * Dimensions virtuelles courantes. Variables, mais jamais pendant une trame : elles ne
+ * changent qu'au redimensionnement de la fenêtre.
  */
 export let VIRTUAL_WIDTH = LARGEUR_MIN;
+export let VIRTUAL_HEIGHT = HAUTEUR_MIN;
 
 export interface Cadrage {
   /** Facteur d'agrandissement, entier dès que la place le permet. */
   readonly scale: number;
   readonly largeur: number;
+  readonly hauteur: number;
 }
 
 /**
- * Décide de l'échelle et de la largeur virtuelle pour une place donnée.
+ * Décide de l'échelle et des dimensions virtuelles pour une place donnée.
  *
- * L'échelle se lit sur la **hauteur** seule, la seule dimension fixe ; la largeur
- * remplit ensuite ce qui reste. Fonction pure, donc éprouvable sans navigateur — c'est
- * là que se joue la différence entre un jeu qui remplit l'écran et un jeu qui flotte au
- * milieu d'une page noire.
+ * L'échelle est choisie d'abord, entière, comme le plus grand facteur que les deux
+ * dimensions minimales peuvent payer. Les dimensions remplissent ensuite tout ce qui
+ * reste : c'est ce qui fait la différence entre un jeu qui occupe l'écran et un jeu qui
+ * flotte au milieu de bandes noires. Fonction pure, donc éprouvable sans navigateur.
  */
 export function cadrer(largeurDispo: number, hauteurDispo: number): Cadrage {
-  // La hauteur commande, mais un écran étroit — un téléphone tenu en portrait — ne peut
-  // pas toujours payer le facteur qu'elle autorise : à s'en tenir à elle, le canvas
-  // débordait de la page. On retient donc le plus contraignant des deux.
-  const brut = Math.min(hauteurDispo / VIRTUAL_HEIGHT, largeurDispo / LARGEUR_MIN);
+  const brut = Math.min(largeurDispo / LARGEUR_MIN, hauteurDispo / HAUTEUR_MIN);
   const scale = brut >= 1 ? Math.floor(brut) : brut;
-  const voulue = Math.floor(largeurDispo / scale);
-  // Largeur paire : une largeur impaire décentrerait d'un demi-pixel tout ce que les
-  // scènes centrent sur `VIRTUAL_WIDTH / 2`.
-  const largeur = Math.max(LARGEUR_MIN, Math.min(LARGEUR_MAX, voulue - (voulue % 2)));
-  return { scale, largeur };
+
+  // Pas d'arrondi à la dimension paire : il coûtait jusqu'à un facteur d'échelle de
+  // marge résiduelle, pour rien — le peintre arrondit déjà chaque coordonnée, et un
+  // centre à la demi-unité ne se voit nulle part.
+  return {
+    scale,
+    largeur: Math.max(LARGEUR_MIN, Math.min(LARGEUR_MAX, Math.floor(largeurDispo / scale))),
+    hauteur: Math.max(HAUTEUR_MIN, Math.min(HAUTEUR_MAX, Math.floor(hauteurDispo / scale))),
+  };
 }
 
 export interface Viewport {
@@ -107,10 +113,12 @@ export function createViewport(host: HTMLElement): Viewport {
     const cadrage = cadrer(largeurDispo, hauteurDispo);
     scale = cadrage.scale;
     VIRTUAL_WIDTH = cadrage.largeur;
+    VIRTUAL_HEIGHT = cadrage.hauteur;
 
     // Changer le buffer réinitialise le contexte, filtrage compris : on le réaffirme
     // juste après, sinon le premier rendu qui suit sort flou.
     if (canvas.width !== VIRTUAL_WIDTH) canvas.width = VIRTUAL_WIDTH;
+    if (canvas.height !== VIRTUAL_HEIGHT) canvas.height = VIRTUAL_HEIGHT;
     canvas.style.width = `${Math.round(VIRTUAL_WIDTH * scale)}px`;
     canvas.style.height = `${Math.round(VIRTUAL_HEIGHT * scale)}px`;
     ctx.imageSmoothingEnabled = false;

@@ -937,19 +937,24 @@ describe('cadrage de l’écran', () => {
    * noire de chaque côté en 1080p, et 320 en 1440p : le jeu flottait au milieu de la
    * page. C'est la largeur qui s'adapte désormais, pas l'échelle qui se dégrade.
    */
-  it('remplit la largeur des écrans courants', () => {
-    for (const [largeur, hauteur] of [
-      [1920, 1072],
-      [2560, 1432],
-      [1512, 974],
-      [1440, 892],
-      [1280, 720],
+  it('remplit les écrans courants dans les deux dimensions', () => {
+    for (const [largeur, hauteur, quoi] of [
+      [1920, 1080, 'desktop 1080p'],
+      [2560, 1440, '1440p'],
+      [1512, 982, 'MacBook'],
+      [1280, 720, 'petit portable'],
+      [390, 600, 'téléphone en portrait'],
+      [844, 390, 'téléphone en paysage'],
+      [768, 1024, 'tablette'],
     ] as const) {
-      const { scale, largeur: virtuelle } = cadrer(largeur, hauteur);
-      const rendu = virtuelle * scale;
-      expect(largeur - rendu, `${largeur}×${hauteur} : marge résiduelle`).toBeLessThanOrEqual(4);
+      const cadrage = cadrer(largeur, hauteur);
+      const contexte = `${quoi} (${largeur}×${hauteur})`;
+      // Le reste de la division entière est la seule marge irréductible : il vaut au
+      // plus un facteur d'échelle moins un pixel.
+      expect(largeur - cadrage.largeur * cadrage.scale, `${contexte} : marge latérale`).toBeLessThan(cadrage.scale);
+      expect(hauteur - cadrage.hauteur * cadrage.scale, `${contexte} : marge verticale`).toBeLessThan(cadrage.scale);
       // L'échelle reste entière : c'est elle qui garde les pixels carrés.
-      expect(scale, `${largeur}×${hauteur}`).toBe(Math.floor(scale));
+      expect(cadrage.scale, contexte).toBe(Math.floor(cadrage.scale));
     }
   });
 
@@ -960,24 +965,37 @@ describe('cadrage de l’écran', () => {
   it('ne déborde jamais de la place disponible', () => {
     for (let largeur = 240; largeur <= 3600; largeur += 37) {
       for (const hauteur of [220, 300, 340, 600, 900, 1440]) {
-        const { scale, largeur: virtuelle } = cadrer(largeur, hauteur);
-        expect(virtuelle * scale, `${largeur}×${hauteur} déborde en largeur`).toBeLessThanOrEqual(largeur);
-        expect(VIRTUAL_HEIGHT * scale, `${largeur}×${hauteur} déborde en hauteur`).toBeLessThanOrEqual(hauteur);
-        expect(scale).toBeGreaterThan(0);
+        const cadrage = cadrer(largeur, hauteur);
+        expect(cadrage.largeur * cadrage.scale, `${largeur}×${hauteur} déborde en largeur`).toBeLessThanOrEqual(largeur);
+        expect(cadrage.hauteur * cadrage.scale, `${largeur}×${hauteur} déborde en hauteur`).toBeLessThanOrEqual(hauteur);
+        expect(cadrage.scale).toBeGreaterThan(0);
       }
     }
   });
 
-  it('borne la vue pour ne pas devenir absurde en ultra-large', () => {
-    const { largeur } = cadrer(3440, 1432);
-    expect(largeur).toBeLessThanOrEqual(448);
-    // …et ne descend jamais sous la largeur pour laquelle les écrans sont dessinés.
-    expect(cadrer(200, 200).largeur).toBeGreaterThanOrEqual(320);
+  it('ne descend jamais sous les dimensions pour lesquelles les écrans sont dessinés', () => {
+    // En dessous, les panneaux ne tiendraient plus dans le cadre.
+    for (const [largeur, hauteur] of [[200, 200], [120, 400], [400, 120]] as const) {
+      const cadrage = cadrer(largeur, hauteur);
+      expect(cadrage.largeur, `${largeur}×${hauteur}`).toBeGreaterThanOrEqual(320);
+      expect(cadrage.hauteur, `${largeur}×${hauteur}`).toBeGreaterThanOrEqual(208);
+    }
   });
 
-  it('donne une largeur paire, pour que le centrage tombe juste', () => {
-    for (let largeur = 300; largeur <= 3000; largeur += 13) {
-      expect(cadrer(largeur, 1000).largeur % 2, `largeur ${largeur}`).toBe(0);
+  it('ne laisse jamais plus d’un facteur d’échelle de marge', () => {
+    for (let largeur = 340; largeur <= 3000; largeur += 17) {
+      for (const hauteur of [230, 400, 700, 1100]) {
+        const c = cadrer(largeur, hauteur);
+        // Sauf quand une borne mord : le minimum et le maximum priment sur le
+        // remplissage, l'un pour que les panneaux tiennent, l'autre par garde-fou.
+        const libre = (valeur: number, min: number, max: number): boolean => valeur > min && valeur < max;
+        if (libre(c.largeur, 320, 1024)) {
+          expect(largeur - c.largeur * c.scale, `${largeur}×${hauteur}`).toBeLessThan(c.scale);
+        }
+        if (libre(c.hauteur, 208, 1024)) {
+          expect(hauteur - c.hauteur * c.scale, `${largeur}×${hauteur}`).toBeLessThan(c.scale);
+        }
+      }
     }
   });
 });

@@ -43,12 +43,13 @@
         display: flex;
         flex-direction: column;
       }
+      /* Aucun rembourrage : le canvas se dimensionne sur la place réelle, et quatre
+         pixels de marge se voyaient comme un liseré noir sur téléphone. */
       #scene {
         flex: 1;
         min-height: 0;
         display: grid;
         place-items: center;
-        padding: 4px;
       }
       canvas {
         display: block;
@@ -84,6 +85,10 @@
          est disponible — sur desktop, ils n'apparaissent jamais. */
       .tactile {
         flex: 0 0 auto;
+        /* Zone sûre latérale comprise : sur un téléphone à encoche, les boutons se
+           collaient au bord arrondi. */
+        padding-left: max(1rem, env(safe-area-inset-left));
+        padding-right: max(1rem, env(safe-area-inset-right));
         display: flex;
         justify-content: space-between;
         align-items: flex-end;

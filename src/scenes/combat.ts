@@ -63,6 +63,9 @@ type Menu = 'racine' | 'attaques' | 'sac' | 'equipe';
 /** Lignes affichées d'un coup dans les menus déroulants du combat. */
 const LIGNES_VISIBLES = 3;
 
+/** Hauteur du bandeau d'actions, en bas de l'écran. */
+const HAUTEUR_MENU = 52;
+
 export class SceneCombat implements Scene {
   readonly nom = 'combat';
   readonly opaque = true;
@@ -561,16 +564,25 @@ export class SceneCombat implements Scene {
 
   dessiner(jeu: Jeu): void {
     const peintre = jeu.peintre;
+
+    // Le terrain se place en proportion de la hauteur, qui varie avec l'écran. Un
+    // horizon fixé à 96 pixels laissait les deux créatures flotter en haut d'un sol
+    // démesuré dès que la fenêtre était haute.
+    const utile = VIRTUAL_HEIGHT - HAUTEUR_MENU;
+    const horizon = Math.round(utile * 0.55);
     peintre.remplir(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, '#1b2430');
-    peintre.remplir(0, 96, VIRTUAL_WIDTH, VIRTUAL_HEIGHT - 96, '#2a3a2c');
+    peintre.remplir(0, horizon, VIRTUAL_WIDTH, VIRTUAL_HEIGHT - horizon, '#2a3a2c');
 
     const secousse = this.tremblement > 0 ? Math.round(Math.sin(this.tremblement * 26) * 2) : 0;
 
-    peintre.creature(this.adversaire.speciesId, 'face', VIRTUAL_WIDTH - 96 + secousse, 22, { echelle: 1 });
-    peintre.creature(this.creatureJoueur.speciesId, 'dos', 26, 76, { echelle: 1.25 });
+    // L'adversaire se tient au-dessus de l'horizon, le nôtre en contrebas, dos tourné.
+    peintre.creature(this.adversaire.speciesId, 'face', VIRTUAL_WIDTH - 96 + secousse, horizon - 74, {
+      echelle: 1,
+    });
+    peintre.creature(this.creatureJoueur.speciesId, 'dos', 26, utile - 62, { echelle: 1.25 });
 
     this.dessinerJauge(jeu, this.adversaire, 8, 10, false);
-    this.dessinerJauge(jeu, this.creatureJoueur, VIRTUAL_WIDTH - 130, 82, true);
+    this.dessinerJauge(jeu, this.creatureJoueur, VIRTUAL_WIDTH - 130, utile - 56, true);
 
     if (!jeu.dialogue.actif && !this.attente) this.dessinerMenu(jeu);
     jeu.dialogue.dessiner();
@@ -604,15 +616,18 @@ export class SceneCombat implements Scene {
 
   private dessinerMenu(jeu: Jeu): void {
     const peintre = jeu.peintre;
-    const y = VIRTUAL_HEIGHT - 52;
+    const y = VIRTUAL_HEIGHT - HAUTEUR_MENU;
     peintre.panneau(6, y, VIRTUAL_WIDTH - 12, 46);
 
     if (this.menu === 'racine') {
       const entrees = [jeu.t('combat.attaquer'), jeu.t('combat.sac'), jeu.t('combat.equipe'), jeu.t('combat.fuir')];
+      // Les deux colonnes se partagent la largeur : figées à 150 pixels, elles se
+      // massaient à gauche d'un écran large.
+      const colonneLarge = Math.floor((VIRTUAL_WIDTH - 40) / 2);
       entrees.forEach((libelle, index) => {
         const colonne = index % 2;
         const ligne = Math.floor(index / 2);
-        this.option(jeu, libelle, 20 + colonne * 150, y + 10 + ligne * 14, index === this.selection);
+        this.option(jeu, libelle, 20 + colonne * colonneLarge, y + 10 + ligne * 14, index === this.selection);
       });
       return;
     }
@@ -624,7 +639,7 @@ export class SceneCombat implements Scene {
         const ligne = Math.floor(index / 2);
         const move = MOVES[slot.id];
         const libelle = `${move.nom[jeu.langue]}  ${slot.pp}/${move.pp}`;
-        this.option(jeu, libelle, 16 + colonne * 152, y + 10 + ligne * 14, index === this.selection);
+        this.option(jeu, libelle, 16 + colonne * Math.floor((VIRTUAL_WIDTH - 32) / 2), y + 10 + ligne * 14, index === this.selection);
       });
       return;
     }

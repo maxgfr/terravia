@@ -36,8 +36,10 @@ import { SceneCarte } from './carte.ts';
 import { SceneParametres } from './parametres.ts';
 import { traiterImport } from './partie.ts';
 
-/** Lignes de réserve affichées d'un coup dans la colonne de droite. */
-const LIGNES_RESERVE = 8;
+/** Lignes de réserve affichées d'un coup dans la colonne de droite, selon la place. */
+function lignesReserve(): number {
+  return Math.max(4, Math.floor((VIRTUAL_HEIGHT - 60) / 13));
+}
 
 /**
  * Les types qui frappent fort cette combinaison, et ceux qu'elle encaisse.
@@ -227,7 +229,7 @@ export class SceneMenu implements Scene {
     if (jeu.entrees.pressee('nord')) {
       this.selectionReserve = (this.selectionReserve - 1 + reserve.length) % reserve.length;
     }
-    this.defilement = Math.max(0, Math.min(this.selectionReserve - LIGNES_RESERVE + 1, reserve.length - LIGNES_RESERVE));
+    this.defilement = Math.max(0, Math.min(this.selectionReserve - lignesReserve() + 1, reserve.length - lignesReserve()));
     if (!jeu.entrees.pressee('valider')) return;
 
     const nom = jeu.nomCreature(reserve[this.selectionReserve]!);
@@ -315,7 +317,8 @@ export class SceneMenu implements Scene {
 
   private terradex(jeu: Jeu): void {
     this.naviguer(jeu, SPECIES_IDS.length);
-    this.defilement = Math.max(0, Math.min(this.selection - 6, SPECIES_IDS.length - 13));
+    const lignes = Math.max(6, Math.floor((VIRTUAL_HEIGHT - 58) / 12));
+    this.defilement = Math.max(0, Math.min(this.selection - lignes + 4, SPECIES_IDS.length - lignes));
     if (jeu.entrees.pressee('annuler')) {
       this.aller('racine');
       return;
@@ -570,7 +573,7 @@ export class SceneMenu implements Scene {
     if (reserve.length === 0) {
       peintre.texte(jeu.t('menu.reserveVide'), colonneDroite, 42, { couleur: COULEURS.texteAttenue });
     } else {
-      reserve.slice(this.defilement, this.defilement + LIGNES_RESERVE).forEach((membre, ligne) => {
+      reserve.slice(this.defilement, this.defilement + lignesReserve()).forEach((membre, ligne) => {
         const index = this.defilement + ligne;
         const choisi = this.cote === 'reserve' && index === this.selectionReserve;
         const y = 42 + ligne * 13;
@@ -606,7 +609,9 @@ export class SceneMenu implements Scene {
       jeu.peintre.texte(jeu.t('menu.vide'), 28, 34, { couleur: COULEURS.texteAttenue });
       return;
     }
-    objets.slice(0, 12).forEach((entree, index) => {
+    // Le nombre de lignes se déduit de la place : l'écran n'a plus une hauteur fixe.
+    const visibles = Math.max(4, Math.floor((VIRTUAL_HEIGHT - 60) / 13));
+    objets.slice(0, visibles).forEach((entree, index) => {
       const y = 32 + index * 13;
       jeu.peintre.icone(entree.item, 26, y - 4);
       this.ligne(jeu, `   ${jeu.nomObjet(entree.item)}`, y, index === this.selection, `× ${entree.nombre}`);
@@ -621,7 +626,8 @@ export class SceneMenu implements Scene {
       jeu.t('terradex.progression', { vus: vus.length, total: tailleTerradex(), captures: captures.length }),
     );
 
-    for (let ligne = 0; ligne < 13; ligne++) {
+    const lignes = Math.max(6, Math.floor((VIRTUAL_HEIGHT - 58) / 12));
+    for (let ligne = 0; ligne < lignes; ligne++) {
       const index = this.defilement + ligne;
       const species = SPECIES_IDS[index];
       if (!species) break;
