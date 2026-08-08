@@ -64,7 +64,13 @@ export class SceneCarte implements Scene {
 
   mettreAJour(jeu: Jeu, step: number): void {
     this.clignotement += step;
-    if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('valider') || jeu.entrees.pressee('menu')) {
+    // Écran de lecture : rien à y choisir, donc n'importe quel clic le referme.
+    if (
+      jeu.entrees.pressee('annuler') ||
+      jeu.entrees.pressee('valider') ||
+      jeu.entrees.pressee('menu') ||
+      jeu.entrees.cliquePresse()
+    ) {
       jeu.retirer();
     }
   }

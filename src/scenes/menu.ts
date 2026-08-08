@@ -32,6 +32,7 @@ import {
 import { exporterCreature, exporterPartie, nomFichier } from '../save/serialize.ts';
 import { choisirFichier, enregistrerLanguePreferee, telecharger } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
+import { viser, type Colonne } from '../ui/liste.ts';
 import { LANGUES } from '../i18n/index.ts';
 import { makeSeedText } from '../core/rng.ts';
 import { SceneCarte } from './carte.ts';
@@ -43,6 +44,23 @@ import { traiterImport } from './partie.ts';
 /** Lignes de réserve affichées d'un coup dans la colonne de droite, selon la place. */
 function lignesReserve(): number {
   return Math.max(4, Math.floor((VIRTUAL_HEIGHT - 60) / 13));
+}
+
+/**
+ * Objets visibles d'un coup dans le sac.
+ *
+ * La description du bas mange trente-quatre pixels : ce sont les lignes restantes qui
+ * se comptent ici. Cliquer une ligne exige de savoir laquelle est dessinée — d'où ce
+ * calcul sorti du rendu.
+ */
+const HAUTEUR_DESCRIPTION_SAC = 34;
+function lignesSac(): number {
+  return Math.max(3, Math.floor((VIRTUAL_HEIGHT - 60 - HAUTEUR_DESCRIPTION_SAC) / 13));
+}
+
+/** Espèces visibles d'un coup dans le Terradex. */
+function lignesTerradex(): number {
+  return Math.max(6, Math.floor((VIRTUAL_HEIGHT - 58) / 12));
 }
 
 /**
@@ -117,7 +135,10 @@ export class SceneMenu implements Scene {
         this.equipe(jeu);
         break;
       case 'fiche':
-        if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('valider')) this.aller('equipe');
+        // Écran de lecture : rien à y choisir, donc n'importe quel clic le referme.
+        if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('valider') || jeu.entrees.cliquePresse()) {
+          this.aller('equipe');
+        }
         break;
       case 'reserve':
         this.reserve(jeu);
@@ -151,13 +172,30 @@ export class SceneMenu implements Scene {
     if (jeu.entrees.pressee('nord')) this.selection = (this.selection - 1 + nombre) % nombre;
   }
 
+  /**
+   * Le pointeur sur une liste : il déplace la sélection, et son clic la valide.
+   *
+   * Renvoie ce que renvoyait jusqu'ici `pressee('valider')` seul, si bien que chaque
+   * écran garde son code d'action inchangé — il gagne une seconde façon d'y arriver.
+   */
+  private validee(jeu: Jeu, colonne: Colonne): boolean {
+    const { survol, valide } = viser(jeu.entrees, colonne);
+    if (survol !== null) this.selection = survol;
+    return jeu.entrees.pressee('valider') || valide;
+  }
+
+  /** Géométrie des listes dessinées par `ligne()` : le menu et l'onglet Sauvegarde. */
+  private colonneStandard(nombre: number): Colonne {
+    return { x: 14, largeur: VIRTUAL_WIDTH - 30, y: 31, pas: 14, lignes: nombre };
+  }
+
   private racine(jeu: Jeu): void {
     this.naviguer(jeu, ENTREES_RACINE.length);
     if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('menu')) {
       jeu.retirer();
       return;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!this.validee(jeu, this.colonneStandard(ENTREES_RACINE.length))) return;
 
     switch (ENTREES_RACINE[this.selection]) {
       case 'menu.equipe':
@@ -211,7 +249,16 @@ export class SceneMenu implements Scene {
       this.aller('racine');
       return;
     }
-    if (jeu.entrees.pressee('valider')) {
+    // Les vignettes de l'équipe font vingt-six pixels de haut : c'est là qu'on clique
+    // une créature pour ouvrir sa fiche.
+    const colonne: Colonne = {
+      x: 14,
+      largeur: VIRTUAL_WIDTH - 30,
+      y: 28,
+      pas: 26,
+      lignes: jeu.state.equipe.length,
+    };
+    if (this.validee(jeu, colonne)) {
       this.fiche = jeu.state.equipe[this.selection] ?? null;
       if (this.fiche) this.onglet = 'fiche';
     }
@@ -236,9 +283,23 @@ export class SceneMenu implements Scene {
     if (jeu.entrees.pressee('est') && reserve.length > 0) this.cote = 'reserve';
     if (jeu.entrees.pressee('ouest')) this.cote = 'equipe';
 
+    // Le pointeur choisit la colonne en même temps que la ligne : passer de l'équipe à
+    // la réserve ne lui demande pas de toucher aux flèches.
+    const colonnes = this.colonnesReserve(jeu);
+    const gauche = viser(jeu.entrees, colonnes.gauche);
+    const droite = viser(jeu.entrees, colonnes.droite);
+    if (gauche.survol !== null) {
+      this.cote = 'equipe';
+      this.selection = gauche.survol;
+    }
+    if (droite.survol !== null) {
+      this.cote = 'reserve';
+      this.selectionReserve = droite.survol;
+    }
+
     if (this.cote === 'equipe') {
       this.naviguer(jeu, equipe.length);
-      if (!jeu.entrees.pressee('valider')) return;
+      if (!jeu.entrees.pressee('valider') && !gauche.valide) return;
       if (!deposerEnReserve(jeu.state, this.selection)) {
         jeu.dialogue.dire(jeu.t('menu.equipeMinimale'));
         return;
@@ -257,7 +318,7 @@ export class SceneMenu implements Scene {
       this.selectionReserve = (this.selectionReserve - 1 + reserve.length) % reserve.length;
     }
     this.defilement = Math.max(0, Math.min(this.selectionReserve - lignesReserve() + 1, reserve.length - lignesReserve()));
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!jeu.entrees.pressee('valider') && !droite.valide) return;
 
     const nom = jeu.nomCreature(reserve[this.selectionReserve]!);
     if (equipe.length < TAILLE_EQUIPE) {
@@ -279,7 +340,14 @@ export class SceneMenu implements Scene {
       this.aller('racine');
       return;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+    const colonne: Colonne = {
+      x: 14,
+      largeur: VIRTUAL_WIDTH - 30,
+      y: 29,
+      pas: 13,
+      lignes: Math.min(objets.length, lignesSac()),
+    };
+    if (!this.validee(jeu, colonne)) return;
 
     const choisi = objets[this.selection];
     if (!choisi) return;
@@ -358,15 +426,25 @@ export class SceneMenu implements Scene {
 
   private terradex(jeu: Jeu): void {
     this.naviguer(jeu, SPECIES_IDS.length);
-    const lignes = Math.max(6, Math.floor((VIRTUAL_HEIGHT - 58) / 12));
+    const lignes = lignesTerradex();
     this.defilement = Math.max(0, Math.min(this.selection - lignes + 4, SPECIES_IDS.length - lignes));
     if (jeu.entrees.pressee('annuler')) {
       this.aller('racine');
       return;
     }
+    // La liste défile : la colonne cliquable part de l'espèce en haut de l'écran, pas
+    // de la première du Terradex.
+    const colonne: Colonne = {
+      x: 14,
+      largeur: VIRTUAL_WIDTH - 30,
+      y: 27,
+      pas: 12,
+      lignes: Math.min(lignes, SPECIES_IDS.length - this.defilement),
+      depuis: this.defilement,
+    };
     // On n'ouvre la fiche que d'une espèce déjà croisée : le Terradex ne dévoile pas
     // ce qu'on n'a pas rencontré, c'est tout son intérêt.
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!this.validee(jeu, colonne)) return;
     const species = SPECIES_IDS[this.selection];
     if (species && jeu.state.progression.terradexVus.includes(species)) {
       this.especeVue = species;
@@ -383,7 +461,7 @@ export class SceneMenu implements Scene {
    * deviner coup par coup.
    */
   private espece(jeu: Jeu): void {
-    if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('valider')) {
+    if (jeu.entrees.pressee('annuler') || jeu.entrees.pressee('valider') || jeu.entrees.cliquePresse()) {
       this.onglet = 'terradex';
     }
   }
@@ -394,7 +472,7 @@ export class SceneMenu implements Scene {
       this.aller('racine');
       return;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!this.validee(jeu, this.colonneStandard(ENTREES_SAUVEGARDE.length))) return;
 
     switch (ENTREES_SAUVEGARDE[this.selection]) {
       case 'sauvegarde.maintenant':
@@ -646,6 +724,35 @@ export class SceneMenu implements Scene {
     peintre.texte(aide, 18, VIRTUAL_HEIGHT - 24, { couleur: COULEURS.texteAttenue });
   }
 
+  /**
+   * Les deux colonnes cliquables de la réserve, dans le repère où elles sont dessinées.
+   *
+   * La droite défile : son `depuis` est le décalage courant, si bien qu'un clic sur la
+   * première ligne visible désigne bien la créature affichée là, et non la première de
+   * la réserve.
+   */
+  private colonnesReserve(jeu: Jeu): { gauche: Colonne; droite: Colonne } {
+    const colonneDroite = Math.round(VIRTUAL_WIDTH / 2) + 4;
+    const visibles = Math.max(0, Math.min(lignesReserve(), jeu.state.reserve.length - this.defilement));
+    return {
+      gauche: {
+        x: 14,
+        largeur: colonneDroite - 26,
+        y: 39,
+        pas: 13,
+        lignes: jeu.state.equipe.length,
+      },
+      droite: {
+        x: colonneDroite - 12,
+        largeur: VIRTUAL_WIDTH - colonneDroite - 8,
+        y: 39,
+        pas: 13,
+        lignes: visibles,
+        depuis: this.defilement,
+      },
+    };
+  }
+
   /** Une créature en une ligne : nom tronqué, niveau, points de vie. */
   private ligneCreature(jeu: Jeu, membre: CreatureInstance): string {
     const nom = jeu.nomCreature(membre);
@@ -662,9 +769,8 @@ export class SceneMenu implements Scene {
     }
     // La description de l'objet sélectionné occupe le bas du cadre : les lignes se
     // comptent sur ce qui reste au-dessus.
-    const hauteurDescription = 34;
-    const visibles = Math.max(3, Math.floor((VIRTUAL_HEIGHT - 60 - hauteurDescription) / 13));
-    objets.slice(0, visibles).forEach((entree, index) => {
+    const hauteurDescription = HAUTEUR_DESCRIPTION_SAC;
+    objets.slice(0, lignesSac()).forEach((entree, index) => {
       const y = 32 + index * 13;
       jeu.peintre.icone(entree.item, 26, y - 4);
       this.ligne(jeu, `   ${jeu.nomObjet(entree.item)}`, y, index === this.selection, `× ${entree.nombre}`);
@@ -692,7 +798,7 @@ export class SceneMenu implements Scene {
       jeu.t('terradex.progression', { vus: vus.length, total: tailleTerradex(), captures: captures.length }),
     );
 
-    const lignes = Math.max(6, Math.floor((VIRTUAL_HEIGHT - 58) / 12));
+    const lignes = lignesTerradex();
     for (let ligne = 0; ligne < lignes; ligne++) {
       const index = this.defilement + ligne;
       const species = SPECIES_IDS[index];

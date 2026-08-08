@@ -160,19 +160,86 @@ export class SceneOverworld implements Scene {
       this.interagir(jeu);
       return;
     }
+    if (this.clicSurUneEntite(jeu)) return;
 
-    const direction = this.directionDemandee(jeu);
-    if (direction) this.tenterPas(jeu, direction);
-  }
-
-  private directionDemandee(jeu: Jeu): Direction | null {
-    for (const direction of ['nord', 'sud', 'est', 'ouest'] as const) {
-      if (jeu.entrees.maintenue(direction)) return direction;
+    // Plusieurs directions peuvent être proposées : la première qui passe est jouée.
+    for (const direction of this.directionsDemandees(jeu)) {
+      if (this.tenterPas(jeu, direction)) break;
     }
-    return null;
   }
 
-  private tenterPas(jeu: Jeu, direction: Direction): void {
+  /** La case du monde que le pointeur désigne, ou `null` s'il n'y en a pas. */
+  private caseVisee(jeu: Jeu): { x: number; y: number } | null {
+    const pointeur = jeu.pointeur;
+    if (!pointeur) return null;
+    const camera = this.camera(jeu);
+    return {
+      x: Math.floor((pointeur.x + camera.x) / TILE_SIZE),
+      y: Math.floor((pointeur.y + camera.y) / TILE_SIZE),
+    };
+  }
+
+  /**
+   * Cliquer une case voisine intéressante revient à s'y tourner puis à valider.
+   *
+   * Sans cela, jouer à la souris permettrait de marcher mais pas de parler : il faudrait
+   * revenir au clavier devant chaque PNJ, chaque panneau et chaque comptoir de soin. Et
+   * l'eau compte autant qu'une entité — c'est là qu'on lance la canne, et rien d'autre
+   * ne permettrait de pêcher au pointeur.
+   */
+  private clicSurUneEntite(jeu: Jeu): boolean {
+    if (!jeu.entrees.cliquePresse()) return false;
+    const cible = this.caseVisee(jeu);
+    if (!cible) return false;
+
+    const joueur = jeu.state.joueur;
+    const dx = cible.x - joueur.x;
+    const dy = cible.y - joueur.y;
+    // Uniquement les quatre voisines : au-delà, le clic veut dire « marche », pas « parle ».
+    if (Math.abs(dx) + Math.abs(dy) !== 1) return false;
+
+    const region = this.region(jeu);
+    const interessante =
+      region.entites.some(
+        (entite) => entite.x === cible.x && entite.y === cible.y && entite.kind !== 'objet',
+      ) || lireTuile(region, cible.x, cible.y) === 'eau';
+    if (!interessante) return false;
+
+    joueur.direction = dx === 1 ? 'est' : dx === -1 ? 'ouest' : dy === 1 ? 'sud' : 'nord';
+    this.interagir(jeu);
+    return true;
+  }
+
+  /**
+   * Les directions à tenter cette trame, de la plus souhaitable à la moins.
+   *
+   * Le clavier n'en propose qu'une. Le pointeur maintenu en propose deux : le jeu marche
+   * vers le curseur, en commençant par l'axe le plus éloigné et en se rabattant sur
+   * l'autre quand le premier est bloqué. C'est ce qui fait longer un arbre au lieu de
+   * s'y coller — sans recherche de chemin, qui n'a pas sa place pour une case à la fois.
+   */
+  private directionsDemandees(jeu: Jeu): Direction[] {
+    for (const direction of ['nord', 'sud', 'est', 'ouest'] as const) {
+      if (jeu.entrees.maintenue(direction)) return [direction];
+    }
+
+    if (!jeu.entrees.cliqueMaintenu()) return [];
+    const cible = this.caseVisee(jeu);
+    if (!cible) return [];
+
+    const dx = cible.x - jeu.state.joueur.x;
+    const dy = cible.y - jeu.state.joueur.y;
+    if (dx === 0 && dy === 0) return [];
+
+    const horizontal: Direction = dx > 0 ? 'est' : 'ouest';
+    const vertical: Direction = dy > 0 ? 'sud' : 'nord';
+    if (dx === 0) return [vertical];
+    if (dy === 0) return [horizontal];
+    return Math.abs(dx) >= Math.abs(dy) ? [horizontal, vertical] : [vertical, horizontal];
+  }
+
+  /** Engage un pas dans cette direction. Faux si elle est barrée. */
+  private tenterPas(jeu: Jeu, direction: Direction): boolean {
     const joueur = jeu.state.joueur;
     joueur.direction = direction;
 
@@ -184,13 +251,13 @@ export class SceneOverworld implements Scene {
 
     // Un rebord ne se franchit que vers le sud, et d'un saut par-dessus la case.
     const rebord = TILES[tuile].ledge === 'sud';
-    if (rebord && direction !== 'sud') return;
+    if (rebord && direction !== 'sud') return false;
 
-    if (TILES[tuile].solid && !rebord) return;
-    if (this.entiteEn(region, versX, versY, jeu)) return;
+    if (TILES[tuile].solid && !rebord) return false;
+    if (this.entiteEn(region, versX, versY, jeu)) return false;
 
     const arriveeY = rebord ? versY + 1 : versY;
-    if (rebord && TILES[lireTuile(region, versX, arriveeY)].solid) return;
+    if (rebord && TILES[lireTuile(region, versX, arriveeY)].solid) return false;
 
     this.pas = {
       depuisX: joueur.x,
@@ -200,6 +267,7 @@ export class SceneOverworld implements Scene {
       progression: 0,
       saut: rebord,
     };
+    return true;
   }
 
   /** L'entité qui bloque cette case, s'il y en a une. */
@@ -480,22 +548,37 @@ export class SceneOverworld implements Scene {
 
   // ── Rendu ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Coin haut-gauche de la vue, en pixels de région.
+   *
+   * La caméra suit le joueur mais s'arrête aux bords : on ne montre jamais le vide autour
+   * de la carte. Le rendu et la lecture du pointeur l'appellent tous les deux — c'est ce
+   * décalage qui relie un point de l'écran à une case du monde, et il ne doit exister
+   * qu'en un seul exemplaire.
+   */
+  private camera(jeu: Jeu): { x: number; y: number } {
+    const region = this.region(jeu);
+    const joueur = jeu.state.joueur;
+    const { pixelX, pixelY } = this.positionPixel(joueur.x, joueur.y);
+    return {
+      x: Math.max(
+        0,
+        Math.min(region.width * TILE_SIZE - VIRTUAL_WIDTH, pixelX + TILE_SIZE / 2 - VIRTUAL_WIDTH / 2),
+      ),
+      y: Math.max(
+        0,
+        Math.min(region.height * TILE_SIZE - VIRTUAL_HEIGHT, pixelY + TILE_SIZE / 2 - VIRTUAL_HEIGHT / 2),
+      ),
+    };
+  }
+
   dessiner(jeu: Jeu): void {
     const peintre = jeu.peintre;
     const region = this.region(jeu);
     const joueur = jeu.state.joueur;
 
     const { pixelX, pixelY } = this.positionPixel(joueur.x, joueur.y);
-    // La caméra suit le joueur mais s'arrête aux bords : on ne montre jamais le vide
-    // autour de la carte.
-    const cameraX = Math.max(
-      0,
-      Math.min(region.width * TILE_SIZE - VIRTUAL_WIDTH, pixelX + TILE_SIZE / 2 - VIRTUAL_WIDTH / 2),
-    );
-    const cameraY = Math.max(
-      0,
-      Math.min(region.height * TILE_SIZE - VIRTUAL_HEIGHT, pixelY + TILE_SIZE / 2 - VIRTUAL_HEIGHT / 2),
-    );
+    const { x: cameraX, y: cameraY } = this.camera(jeu);
 
     peintre.remplir(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, COULEURS.fond);
 
@@ -511,6 +594,20 @@ export class SceneOverworld implements Scene {
         const y = premiereLigne + ligne;
         peintre.tuile(lireTuile(region, x, y), trameEau, x * TILE_SIZE - cameraX, y * TILE_SIZE - cameraY);
       }
+    }
+
+    // La case visée, tant qu'une souris désigne quelque chose : marcher au pointeur sans
+    // ce repère revient à deviner où l'on clique. Un doigt n'en a pas besoin — il est
+    // posé sur l'endroit qu'il désigne.
+    const visee = this.caseVisee(jeu);
+    if (visee && !jeu.entrees.tactile) {
+      peintre.contour(
+        visee.x * TILE_SIZE - cameraX,
+        visee.y * TILE_SIZE - cameraY,
+        TILE_SIZE,
+        TILE_SIZE,
+        COULEURS.selection,
+      );
     }
 
     // Entités puis joueur, triés par ordonnée : ce qui est plus bas passe devant.

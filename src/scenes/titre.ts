@@ -14,6 +14,7 @@ import { accueillirCreature, creerPartie, poserDrapeau, prochainIdentifiant } fr
 import { chargerDepuisTexte } from '../save/serialize.ts';
 import { choisirFichier, enregistrerLanguePreferee, lireSauvegardeLocale } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
+import { viser, type Colonne } from '../ui/liste.ts';
 import { LANGUES, type CleTexte } from '../i18n/index.ts';
 import { SceneAide } from './aide.ts';
 import { SceneEncyclopedie } from './encyclopedie.ts';
@@ -75,10 +76,42 @@ export class SceneTitre implements Scene {
     if (jeu.entrees.pressee('nord')) this.selection = (this.selection - 1 + nombre) % nombre;
   }
 
+  /**
+   * Le panneau d'accueil se dimensionne sur son entrée la plus longue.
+   *
+   * La mesure sert deux fois — à le dessiner et à savoir où l'on clique — donc elle vit
+   * ici plutôt que dans le rendu : une largeur calculée deux fois finit par diverger.
+   */
+  private cadreAccueil(jeu: Jeu): { gauche: number; largeur: number; hauteur: number } {
+    const entrees = this.entrees;
+    const largeurTexte = Math.max(...entrees.map((cle) => jeu.peintre.largeurTexte(jeu.t(cle))));
+    const largeur = Math.min(VIRTUAL_WIDTH - 24, largeurTexte + 40);
+    return {
+      gauche: Math.round(VIRTUAL_WIDTH / 2 - largeur / 2),
+      largeur,
+      hauteur: entrees.length * 14 + 16,
+    };
+  }
+
+  /** Hauteur du texte d'explication de l'écran de seed : les options s'y accrochent. */
+  private hauteurTexteSeed(jeu: Jeu): number {
+    const largeurPanneau = VIRTUAL_WIDTH - 40;
+    return jeu.peintre.decouper(jeu.t('titre.seedLibre'), largeurPanneau - 20).length * jeu.peintre.hauteurLigne;
+  }
+
+  /** Le pointeur sur une liste : il déplace la sélection, son clic la valide. */
+  private validee(jeu: Jeu, colonne: Colonne): boolean {
+    const { survol, valide } = viser(jeu.entrees, colonne);
+    if (survol !== null) this.selection = survol;
+    return jeu.entrees.pressee('valider') || valide;
+  }
+
   private accueil(jeu: Jeu): void {
     const entrees = this.entrees;
     this.naviguer(jeu, entrees.length);
-    if (!jeu.entrees.pressee('valider')) return;
+    const { gauche, largeur } = this.cadreAccueil(jeu);
+    const colonne: Colonne = { x: gauche, largeur, y: 67, pas: 14, lignes: entrees.length };
+    if (!this.validee(jeu, colonne)) return;
 
     switch (entrees[this.selection]) {
       case 'titre.continuer':
@@ -133,7 +166,14 @@ export class SceneTitre implements Scene {
       this.selection = 0;
       return;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+    const colonne: Colonne = {
+      x: 20,
+      largeur: VIRTUAL_WIDTH - 40,
+      y: 89 + this.hauteurTexteSeed(jeu),
+      pas: 14,
+      lignes: 2,
+    };
+    if (!this.validee(jeu, colonne)) return;
     if (this.selection === 0) {
       this.seedProposee = makeSeedText(jeu.rng.next());
       return;
@@ -154,7 +194,20 @@ export class SceneTitre implements Scene {
     if (jeu.entrees.pressee('ouest')) {
       this.selection = (this.selection - 1 + starters.length) % starters.length;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+
+    // Les trois starters sont côte à côte, pas empilés : chaque carte est sa propre
+    // zone, du cadre de sélection jusqu'à la plaque de type sous le nom.
+    let cliquee = false;
+    starters.forEach((_, index) => {
+      if (!jeu.survole(24 + index * 96 - 4, 66, 72, 100)) return;
+      if (jeu.entrees.pointeurBouge()) this.selection = index;
+      if (jeu.entrees.cliquePresse()) {
+        this.selection = index;
+        cliquee = true;
+      }
+    });
+
+    if (!jeu.entrees.pressee('valider') && !cliquee) return;
 
     const choisi = starters[this.selection]!;
     void jeu.dialogue
@@ -217,14 +270,7 @@ export class SceneTitre implements Scene {
   private dessinerAccueil(jeu: Jeu): void {
     const peintre = jeu.peintre;
     const entrees = this.entrees;
-    const hauteur = entrees.length * 14 + 16;
-
-    // Le panneau se dimensionne sur son entrée la plus longue : « Importer une
-    // sauvegarde » débordait d'une largeur fixée à l'œil, et débordera de toute autre
-    // dès qu'une traduction s'allongera.
-    const largeurTexte = Math.max(...entrees.map((cle) => peintre.largeurTexte(jeu.t(cle))));
-    const largeur = Math.min(VIRTUAL_WIDTH - 24, largeurTexte + 40);
-    const gauche = Math.round(VIRTUAL_WIDTH / 2 - largeur / 2);
+    const { gauche, largeur, hauteur } = this.cadreAccueil(jeu);
 
     peintre.panneau(gauche, 62, largeur, hauteur);
     entrees.forEach((cle, index) => {
@@ -250,8 +296,7 @@ export class SceneTitre implements Scene {
     // Le texte est découpé avant d'être centré : à 320 pixels de large, cette phrase
     // sortait du cadre en français comme en anglais. On mesure d'abord pour que le
     // panneau s'adapte à la hauteur réelle, quelle que soit la langue.
-    const hauteurTexte = peintre.decouper(jeu.t('titre.seedLibre'), largeurPanneau - 20).length
-      * peintre.hauteurLigne;
+    const hauteurTexte = this.hauteurTexteSeed(jeu);
 
     peintre.panneau(marge, 62, largeurPanneau, hauteurTexte + 58);
     peintre.texteCentreBloc(jeu.t('titre.seedLibre'), VIRTUAL_WIDTH / 2, 70, largeurPanneau - 20, {

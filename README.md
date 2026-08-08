@@ -15,6 +15,7 @@ opens the sanctum, where the creatures that appear nowhere else can finally be c
 | | |
 |---|---|
 | **Keyboard** | Arrows or WASD to move · `Enter` / `E` to talk, read, pick up · `Escape` or `M` for the menu |
+| **Mouse** | Hold the button to walk toward the cursor · click a neighbouring character to talk · click any row, creature or attack to pick it |
 | **Touch** | A D-pad and two buttons appear on devices without a mouse |
 | **Settings** | Language, help and the encyclopedia sit directly in the title screen and the pause menu |
 

@@ -80,7 +80,7 @@ const FR = {
     'Vous partez du bourg avec une créature. La route file plein nord, jalonnée d’arènes. Capturez, entraînez, battez chaque champion — le dernier ouvre le sanctuaire.',
   'aide.controles.titre': 'Se déplacer',
   'aide.controles.texte':
-    'Flèches ou ZQSD pour marcher. Entrée ou E pour parler, lire un panneau, ramasser. Échap ou M ouvre le menu. Sur téléphone, les boutons à l’écran font la même chose.',
+    'Flèches ou ZQSD pour marcher. Entrée ou E pour parler, lire un panneau, ramasser. Échap ou M ouvre le menu. À la souris : maintenez le bouton pour marcher vers le curseur, cliquez un voisin pour lui parler, une ligne pour la choisir. Sur téléphone, les boutons à l’écran font la même chose.',
   'aide.herbes.titre': 'Les hautes herbes',
   'aide.herbes.texte':
     'Les touffes sombres cachent des créatures sauvages. Y marcher déclenche parfois un combat. Les chemins et les villages sont sûrs.',
@@ -302,8 +302,8 @@ const FR = {
   'dialogue.panneau.4': 'Ne nourrissez pas les créatures sauvages.',
 
   // ── Contrôles ──────────────────────────────────────────────────────────────
-  'aide.deplacer': 'Flèches ou ZQSD : se déplacer',
-  'aide.action': 'Entrée ou E : parler, ramasser',
+  'aide.deplacer': 'Flèches, ZQSD ou souris : se déplacer',
+  'aide.action': 'Entrée, E ou clic : parler, choisir',
   'aide.fermer': 'Échap : fermer',
 } as const;
 
@@ -370,7 +370,7 @@ const EN: Record<CleTexte, string> = {
     'You leave the hamlet with one creature. The road runs due north, marked by arenas. Catch, train, beat every champion — the last one opens the sanctum.',
   'aide.controles.titre': 'Moving around',
   'aide.controles.texte':
-    'Arrows or WASD to walk. Enter or E to talk, read a sign, pick things up. Escape or M opens the menu. On a phone, the on-screen buttons do the same.',
+    'Arrows or WASD to walk. Enter or E to talk, read a sign, pick things up. Escape or M opens the menu. With a mouse: hold the button to walk toward the cursor, click a neighbour to talk, click a row to pick it. On a phone, the on-screen buttons do the same.',
   'aide.herbes.titre': 'Tall grass',
   'aide.herbes.texte':
     'The dark tufts hide wild creatures. Walking into them sometimes starts a battle. Paths and villages are safe.',
@@ -579,8 +579,8 @@ const EN: Record<CleTexte, string> = {
   'dialogue.panneau.3': 'Ledges are a one-jump drop. Not the other way.',
   'dialogue.panneau.4': 'Do not feed the wild creatures.',
 
-  'aide.deplacer': 'Arrows or WASD: move',
-  'aide.action': 'Enter or E: talk, pick up',
+  'aide.deplacer': 'Arrows, WASD or mouse: move',
+  'aide.action': 'Enter, E or click: talk, choose',
   'aide.fermer': 'Escape: close',
 };
 

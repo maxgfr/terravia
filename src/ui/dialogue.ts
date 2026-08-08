@@ -7,6 +7,10 @@
  *
  * Appuyer sur valider pendant que le texte défile l'affiche d'un coup au lieu de passer
  * au message suivant : sans cela, un joueur pressé saute des phrases sans les voir.
+ *
+ * Tout se fait aussi à la souris : un clic avance le message, et les options d'une
+ * question se survolent puis se cliquent. Une partie menée entièrement au pointeur ne
+ * doit jamais buter sur un écran qui exige le clavier.
  */
 
 import type { Entrees } from '../core/input.ts';
@@ -113,20 +117,62 @@ export class BoiteDialogue {
     return this.lignes.reduce((somme, ligne) => somme + ligne.length, 0);
   }
 
+  /**
+   * Géométrie de la boîte, partagée par le rendu et la détection des clics.
+   *
+   * Elle dépend des dimensions virtuelles courantes et du nombre d'options : la calculer
+   * à deux endroits, c'était garantir qu'un jour l'un dérive de l'autre et que les zones
+   * cliquables ne soient plus sous les lignes affichées.
+   */
+  private cadre(): { x: number; y: number; largeur: number; hauteur: number } {
+    const hauteur = this.question ? HAUTEUR_BOITE + this.question.options.length * 10 : HAUTEUR_BOITE;
+    return {
+      x: MARGE,
+      y: VIRTUAL_HEIGHT - hauteur - MARGE,
+      largeur: VIRTUAL_WIDTH - MARGE * 2,
+      hauteur,
+    };
+  }
+
+  /** Ordonnée du haut de la n-ième option, dans le même repère que le rendu. */
+  private ligneOption(index: number, nombre: number, cadre: { y: number; hauteur: number }): number {
+    return cadre.y + cadre.hauteur - 8 - (nombre - index) * 10;
+  }
+
   mettreAJour(step: number, entrees: Entrees): void {
     if (!this.actif) return;
     const total = this.totalCaracteres;
     if (this.reveles < total) this.reveles = Math.min(total, this.reveles + VITESSE * step);
 
+    const clic = entrees.cliquePresse();
+    const pointeur = entrees.pointeur;
+
     if (this.question) {
       if (this.reveles < total) {
-        if (entrees.pressee('valider')) this.reveles = total;
+        // Un clic pendant le défilé révèle tout, comme la touche de validation : sinon
+        // il tomberait sur une option qui n'est pas encore à sa place définitive.
+        if (entrees.pressee('valider') || clic) this.reveles = total;
         return;
       }
       const nombre = this.question.options.length;
       if (entrees.pressee('sud')) this.selection = (this.selection + 1) % nombre;
       if (entrees.pressee('nord')) this.selection = (this.selection + nombre - 1) % nombre;
-      if (entrees.pressee('valider')) {
+
+      // Le survol déplace la sélection : le clic n'a plus qu'à valider, et l'option
+      // visée est mise en évidence avant même qu'on appuie.
+      const cadre = this.cadre();
+      let vise: number | null = null;
+      if (pointeur) {
+        for (let index = 0; index < nombre; index++) {
+          const ligne = this.ligneOption(index, nombre, cadre);
+          if (pointeur.x >= cadre.x && pointeur.x < cadre.x + cadre.largeur && pointeur.y >= ligne - 1 && pointeur.y < ligne + 9) {
+            vise = index;
+          }
+        }
+      }
+      if (vise !== null) this.selection = vise;
+
+      if (entrees.pressee('valider') || (clic && vise !== null)) {
         const { resoudre } = this.question;
         const choix = this.selection;
         this.question = null;
@@ -139,7 +185,9 @@ export class BoiteDialogue {
       return;
     }
 
-    if (entrees.pressee('valider') || entrees.pressee('annuler')) {
+    // Un simple message se passe n'importe où : viser la boîte pour lire la suite
+    // serait une exigence sans raison, et le clic est de toute façon consommé ici.
+    if (entrees.pressee('valider') || entrees.pressee('annuler') || clic) {
       // Première pression : tout révéler. Seconde : passer au message suivant.
       if (this.reveles < total) this.reveles = total;
       else this.avancer();
@@ -149,8 +197,7 @@ export class BoiteDialogue {
   dessiner(): void {
     if (!this.actif) return;
     const peintre = this.peintre;
-    const hauteur = this.question ? HAUTEUR_BOITE + this.question.options.length * 10 : HAUTEUR_BOITE;
-    const y = VIRTUAL_HEIGHT - hauteur - MARGE;
+    const { y, hauteur } = this.cadre();
     peintre.panneau(MARGE, y, VIRTUAL_WIDTH - MARGE * 2, hauteur);
 
     let restants = Math.floor(this.reveles);

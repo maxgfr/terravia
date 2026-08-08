@@ -40,7 +40,7 @@ async function demarrer(): Promise<void> {
   const viewport = createViewport(scene);
   const assets = await chargerAssets();
   const peintre = new Peintre(viewport.ctx, assets);
-  const entrees = creerEntrees(hote);
+  const entrees = creerEntrees(hote, viewport);
 
   // La graine de session n'est pas celle du monde : les tirages de combat doivent
   // varier d'une partie à l'autre, contrairement au terrain.

@@ -7,7 +7,7 @@
  */
 
 import { makeRng, type Rng } from '../core/rng.ts';
-import type { Entrees } from '../core/input.ts';
+import type { Entrees, Point } from '../core/input.ts';
 import { SPECIES, type SpeciesId } from '../data/species.ts';
 import { MOVES, type MoveId } from '../data/moves.ts';
 import { ITEMS, type ItemId } from '../data/items.ts';
@@ -117,6 +117,29 @@ export class Jeu {
     // pour inchangée, et la première écriture périodique n'aurait jamais lieu.
     this.derniereEmpreinte = '';
     this.depuisDerniereEcriture = 0;
+  }
+
+  // ── Pointeur ───────────────────────────────────────────────────────────────
+
+  /** Position de la souris ou du doigt en coordonnées virtuelles, `null` s'il n'y en a pas. */
+  get pointeur(): Point | null {
+    return this.entrees.pointeur;
+  }
+
+  /**
+   * Vrai si le pointeur se trouve dans ce rectangle virtuel.
+   *
+   * Les scènes s'en servent pour souligner l'entrée visée avant qu'on clique : sans ce
+   * retour, une liste cliquable est indiscernable d'une liste qui ne l'est pas.
+   */
+  survole(x: number, y: number, largeur: number, hauteur: number): boolean {
+    const p = this.entrees.pointeur;
+    return !!p && p.x >= x && p.x < x + largeur && p.y >= y && p.y < y + hauteur;
+  }
+
+  /** Vrai si un clic vient d'être enfoncé dans ce rectangle virtuel. */
+  clique(x: number, y: number, largeur: number, hauteur: number): boolean {
+    return this.entrees.cliquePresse() && this.survole(x, y, largeur, hauteur);
   }
 
   // ── Traduction ─────────────────────────────────────────────────────────────

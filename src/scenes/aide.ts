@@ -149,7 +149,25 @@ export class SceneAide implements Scene {
       jeu.retirer();
       return;
     }
-    if (jeu.entrees.pressee('est') || jeu.entrees.pressee('sud') || jeu.entrees.pressee('valider')) {
+
+    // Les pastilles de progression sont la seule façon de revenir en arrière à la
+    // souris : sans elles, un clic malheureux condamnerait à refaire tout le tour.
+    if (jeu.entrees.cliquePresse()) {
+      const largeurPoints = PAGES.length * 8;
+      const gauche = VIRTUAL_WIDTH / 2 - largeurPoints / 2;
+      if (jeu.survole(gauche, VIRTUAL_HEIGHT - 36, largeurPoints, 13)) {
+        const pointeur = jeu.pointeur!;
+        this.page = Math.min(PAGES.length - 1, Math.max(0, Math.floor((pointeur.x - gauche) / 8)));
+        return;
+      }
+    }
+
+    if (
+      jeu.entrees.pressee('est') ||
+      jeu.entrees.pressee('sud') ||
+      jeu.entrees.pressee('valider') ||
+      jeu.entrees.cliquePresse()
+    ) {
       // Passé la dernière page, on referme : l'aide ne doit pas devenir un piège.
       if (this.page >= PAGES.length - 1) jeu.retirer();
       else this.page += 1;

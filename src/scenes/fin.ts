@@ -18,6 +18,7 @@ import {
   typesDesBadges,
 } from '../game/state.ts';
 import { COULEURS } from '../ui/draw.ts';
+import { viser } from '../ui/liste.ts';
 import { SceneTitre } from './titre.ts';
 
 export class SceneFin implements Scene {
@@ -36,7 +37,16 @@ export class SceneFin implements Scene {
 
     if (jeu.entrees.pressee('sud')) this.selection = (this.selection + 1) % 2;
     if (jeu.entrees.pressee('nord')) this.selection = (this.selection + 1) % 2;
-    if (!jeu.entrees.pressee('valider')) return;
+
+    const { survol, valide } = viser(jeu.entrees, {
+      x: 28,
+      largeur: VIRTUAL_WIDTH - 56,
+      y: 153,
+      pas: 14,
+      lignes: 2,
+    });
+    if (survol !== null) this.selection = survol;
+    if (!jeu.entrees.pressee('valider') && !valide) return;
 
     if (this.selection === 0) {
       // On rend la main au monde : le sanctuaire attend, et le Terradex n'est pas fini.

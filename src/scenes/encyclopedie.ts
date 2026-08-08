@@ -17,6 +17,7 @@ import { BIOME_NAMES } from '../data/biomes.ts';
 import { TALENTS } from '../data/talents.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import { COULEURS } from '../ui/draw.ts';
+import { viser } from '../ui/liste.ts';
 import type { CleTexte } from '../i18n/index.ts';
 
 const RAYONS = ['encyclopedie.creatures', 'encyclopedie.attaques', 'encyclopedie.objets'] as const;
@@ -61,6 +62,49 @@ export class SceneEncyclopedie implements Scene {
     const total = this.entrees.length;
     if (jeu.entrees.pressee('sud')) this.selection = (this.selection + 1) % total;
     if (jeu.entrees.pressee('nord')) this.selection = (this.selection - 1 + total) % total;
+
+    this.viserOnglets(jeu);
+    this.viserListe(jeu, total);
+  }
+
+  /** Les trois rayons se cliquent comme des onglets, à leur largeur réelle de texte. */
+  private viserOnglets(jeu: Jeu): void {
+    if (!jeu.entrees.cliquePresse()) return;
+    let x = 16;
+    RAYONS.forEach((cle, index) => {
+      const largeur = jeu.peintre.largeurTexte(jeu.t(cle));
+      if (jeu.survole(x - 4, 10, largeur + 8, 13)) this.rayon = index;
+      x += largeur + 12;
+    });
+  }
+
+  /**
+   * Le survol de la liste déplace le curseur — il n'y a rien à valider ici.
+   *
+   * L'encyclopédie n'a pas de validation : le détail de droite suit la sélection en
+   * permanence. Survoler une entrée suffit donc à la consulter, et cliquer aussi.
+   */
+  private viserListe(jeu: Jeu, total: number): void {
+    const debut = this.premiereLigneVisible();
+    const { survol } = viser(jeu.entrees, {
+      x: 10,
+      largeur: Math.min(150, Math.floor(VIRTUAL_WIDTH * 0.42)),
+      y: 27,
+      pas: 12,
+      lignes: Math.min(this.lignes, total - debut),
+      depuis: debut,
+    });
+    if (survol !== null) this.selection = survol;
+  }
+
+  /**
+   * Index de l'entrée dessinée tout en haut de la liste.
+   *
+   * La liste se recentre sur la sélection : sans ce calcul partagé, un clic sur la
+   * troisième ligne désignerait la troisième entrée du rayon, pas la troisième affichée.
+   */
+  private premiereLigneVisible(): number {
+    return Math.max(0, Math.min(this.selection - Math.floor(this.lignes / 2), this.entrees.length - this.lignes));
   }
 
   dessiner(jeu: Jeu): void {
@@ -93,8 +137,7 @@ export class SceneEncyclopedie implements Scene {
   private dessinerListe(jeu: Jeu, largeur: number): void {
     const peintre = jeu.peintre;
     const lignes = this.lignes;
-    const total = this.entrees.length;
-    const debut = Math.max(0, Math.min(this.selection - Math.floor(lignes / 2), total - lignes));
+    const debut = this.premiereLigneVisible();
 
     for (let ligne = 0; ligne < lignes; ligne++) {
       const index = debut + ligne;

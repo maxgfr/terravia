@@ -12,7 +12,7 @@
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Assets } from '../src/core/assets.ts';
-import type { ActionJeu, Entrees } from '../src/core/input.ts';
+import type { ActionJeu, Entrees, Point } from '../src/core/input.ts';
 import { Jeu } from '../src/game/jeu.ts';
 import { creerCreature } from '../src/game/creature.ts';
 import {
@@ -123,14 +123,30 @@ class EntreesSimulees implements Entrees {
   private pressions = new Set<ActionJeu>();
   readonly tactile = false;
 
+  pointeur: Point | null = null;
+  private clicPresse = false;
+  private clicMaintenu = false;
+  private bouge = false;
+
   maintenue(action: ActionJeu): boolean {
     return this.maintenues.has(action);
   }
   pressee(action: ActionJeu): boolean {
     return this.pressions.has(action);
   }
+  cliquePresse(): boolean {
+    return this.clicPresse;
+  }
+  cliqueMaintenu(): boolean {
+    return this.clicMaintenu;
+  }
+  pointeurBouge(): boolean {
+    return this.bouge;
+  }
   finDeTrame(): void {
     this.pressions.clear();
+    this.clicPresse = false;
+    this.bouge = false;
   }
   detruire(): void {}
 
@@ -142,6 +158,21 @@ class EntreesSimulees implements Entrees {
   }
   relacher(action: ActionJeu): void {
     this.maintenues.delete(action);
+  }
+
+  /** Enfonce le bouton en un point : une trame de clic, puis un maintien. */
+  cliquer(x: number, y: number): void {
+    this.viser(x, y);
+    this.clicPresse = true;
+    this.clicMaintenu = true;
+  }
+  /** Pose le pointeur sans appuyer : ce que fait une souris qui survole. */
+  viser(x: number, y: number): void {
+    if (!this.pointeur || this.pointeur.x !== x || this.pointeur.y !== y) this.bouge = true;
+    this.pointeur = { x, y };
+  }
+  relacherClic(): void {
+    this.clicMaintenu = false;
   }
 }
 
@@ -2022,5 +2053,280 @@ describe('sauvegarde automatique', () => {
     // Passé la tranche de dix secondes, la position est sur le disque.
     for (let i = 0; i < 600; i++) banc.trame();
     expect(lireSauvegardeLocale()).not.toBeNull();
+  });
+});
+
+/**
+ * Souris et doigt.
+ *
+ * Ces écrans sont pilotés par des rectangles calculés à deux endroits — le rendu les
+ * dessine, la mise à jour les teste. Rien dans le typage ne relie les deux : une ligne
+ * déplacée de quatre pixels au rendu rendrait la moitié d'un menu incliquable sans que
+ * quoi que ce soit proteste. C'est exactement ce que ces tests surveillent.
+ */
+describe('pointeur', () => {
+  /**
+   * Le coin haut-gauche de la vue, tel que la scène le calcule.
+   *
+   * Le test refait le trajet dans l'autre sens : il part d'une case, en déduit le point
+   * de l'écran, et vérifie que la scène retrouve bien la case. Une erreur dans un sens
+   * ou dans l'autre casse l'aller-retour.
+   */
+  function camera(banc: Banc): { x: number; y: number } {
+    const region = banc.jeu.monde.region(banc.jeu.state.joueur.regionIndex);
+    const { x, y } = banc.jeu.state.joueur;
+    return {
+      x: Math.max(0, Math.min(region.width * 16 - VIRTUAL_WIDTH, x * 16 + 8 - VIRTUAL_WIDTH / 2)),
+      y: Math.max(0, Math.min(region.height * 16 - VIRTUAL_HEIGHT, y * 16 + 8 - VIRTUAL_HEIGHT / 2)),
+    };
+  }
+
+  function bancMonde(): Banc {
+    const banc = creerBanc();
+    const depart = creerMonde('brume-3f7a').region(0).depart;
+    banc.jeu.state.joueur.x = depart.x;
+    banc.jeu.state.joueur.y = depart.y;
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(41), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 8,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    return banc;
+  }
+
+  it('fait marcher le joueur vers le point maintenu', () => {
+    const banc = bancMonde();
+    const depart = { ...banc.jeu.state.joueur };
+
+    // Le bas de l'écran, à l'aplomb du joueur : le bourg est ouvert au sud du départ.
+    banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 6);
+    for (let i = 0; i < 120; i++) banc.trame();
+    banc.entrees.relacherClic();
+
+    expect(banc.jeu.state.joueur.direction).toBe('sud');
+    expect(banc.jeu.state.joueur.y).toBeGreaterThan(depart.y);
+  });
+
+  it('cesse de marcher dès que le bouton est relâché', () => {
+    const banc = bancMonde();
+    banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 6);
+    for (let i = 0; i < 60; i++) banc.trame();
+
+    banc.entrees.relacherClic();
+    // Un pas déjà engagé s'achève, mais aucun autre ne part.
+    for (let i = 0; i < 20; i++) banc.trame();
+    const arret = { ...banc.jeu.state.joueur };
+    for (let i = 0; i < 120; i++) banc.trame();
+
+    expect(banc.jeu.state.joueur.y).toBe(arret.y);
+    expect(banc.jeu.state.joueur.x).toBe(arret.x);
+  });
+
+  it('parle à un PNJ voisin qu’on clique', () => {
+    const banc = bancMonde();
+    const region = banc.jeu.monde.region(0);
+    // Un interlocuteur du bourg, et une case libre à côté de lui d'où l'aborder.
+    const cible = region.entites.find((entite) => entite.kind === 'pnj' || entite.kind === 'panneau');
+    expect(cible, 'la région de départ doit contenir quelqu’un à qui parler').toBeDefined();
+
+    const voisines = [
+      { x: cible!.x, y: cible!.y + 1 },
+      { x: cible!.x, y: cible!.y - 1 },
+      { x: cible!.x + 1, y: cible!.y },
+      { x: cible!.x - 1, y: cible!.y },
+    ];
+    const depuis = voisines.find((voisine) => !TILES[lireTuile(region, voisine.x, voisine.y)].solid);
+    expect(depuis, 'toute entité est accessible depuis une case voisine').toBeDefined();
+
+    banc.jeu.state.joueur.x = depuis!.x;
+    banc.jeu.state.joueur.y = depuis!.y;
+    banc.trame();
+
+    const vue = camera(banc);
+    banc.entrees.cliquer(cible!.x * 16 + 8 - vue.x, cible!.y * 16 + 8 - vue.y);
+    banc.trame();
+
+    expect(banc.jeu.dialogue.actif).toBe(true);
+  });
+
+  it('ouvre l’onglet Équipe puis la fiche d’une créature au clic', () => {
+    const banc = creerBanc();
+    for (const species of ['folianz', 'mulotin'] as const) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(42), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: species,
+          niveau: 12,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+    banc.jeu.pousser(new SceneMenu());
+
+    // « Équipe » est la première entrée du menu, dessinée à y = 34.
+    banc.entrees.cliquer(60, 36);
+    banc.trame();
+    textesDessines = [];
+    banc.trame();
+    expect(textesDessines).toContain(banc.jeu.nomCreature(banc.jeu.state.equipe[1]!));
+
+    // La seconde vignette d'équipe commence vingt-six pixels sous la première.
+    banc.entrees.cliquer(60, 32 + 26);
+    banc.trame();
+    textesDessines = [];
+    banc.trame();
+    // La fiche s'ouvre sur la créature cliquée, la seconde — et non sur la première,
+    // que la sélection désignait avant que la souris s'en mêle.
+    const attendu = banc.jeu.nomCreature(banc.jeu.state.equipe[1]!);
+    expect(textesDessines[0]).toContain(attendu);
+    // Et c'est bien la fiche : elle seule affiche les points d'expérience.
+    expect(textesDessines).toContain(banc.jeu.t('fiche.xp'));
+  });
+
+  it('laisse le clavier maître tant que le pointeur ne bouge pas', () => {
+    const banc = creerBanc();
+    for (const species of ['folianz', 'mulotin'] as const) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(43), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: species,
+          niveau: 12,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+    banc.jeu.pousser(new SceneMenu());
+
+    // Une souris posée sur la première entrée, puis immobile.
+    banc.entrees.viser(60, 36);
+    banc.trame();
+    for (let i = 0; i < 3; i++) {
+      banc.entrees.presser('sud');
+      banc.trame();
+    }
+    banc.entrees.presser('valider');
+    banc.trame();
+    textesDessines = [];
+    banc.trame();
+
+    // Trois crans plus bas que « Équipe » : le sac. Si le survol avait repris la main,
+    // on serait revenu sur l'équipe à chaque trame.
+    expect(textesDessines).toContain(banc.jeu.t('menu.sac'));
+  });
+
+  it('avance un dialogue au clic', () => {
+    const banc = bancMonde();
+    banc.jeu.dialogue.dire('Un message.');
+    banc.jeu.dialogue.dire('Un autre.');
+    for (let i = 0; i < 60; i++) banc.trame();
+
+    banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 20);
+    banc.trame();
+    banc.entrees.relacherClic();
+    for (let i = 0; i < 60; i++) banc.trame();
+
+    banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 20);
+    banc.trame();
+    banc.entrees.relacherClic();
+    banc.trame();
+
+    expect(banc.jeu.dialogue.actif).toBe(false);
+  });
+
+  it('choisit une attaque en combat au clic', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(44), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 24,
+        origine: 'brume-3f7a',
+      }),
+    );
+    // Deux attaques offensives : la seconde est celle qu'on ira chercher à la souris.
+    banc.jeu.state.equipe[0]!.moves = [
+      { id: 'chargeLourde', pp: 20 },
+      { id: 'fouetLiane', pp: 20 },
+    ];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(45), {
+            uid: 'sauvage',
+            speciesId: 'plumelle',
+            niveau: 5,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    // Le panneau occupe les cinquante-deux derniers pixels ; « Attaquer » est en haut
+    // à gauche de sa grille, la seconde attaque en haut à droite de la suivante.
+    const hautDuPanneau = VIRTUAL_HEIGHT - 52 + 12;
+    banc.entrees.cliquer(40, hautDuPanneau);
+    banc.trame();
+    banc.entrees.relacherClic();
+    banc.trame();
+
+    banc.entrees.cliquer(VIRTUAL_WIDTH - 100, hautDuPanneau);
+    banc.trame();
+    banc.entrees.relacherClic();
+    for (let i = 0; i < 10; i++) banc.trame();
+
+    const [premiere, seconde] = banc.jeu.state.equipe[0]!.moves;
+    expect(seconde!.pp, 'la seconde attaque est celle qui a servi').toBe(19);
+    expect(premiere!.pp, 'et la première n’a pas bougé').toBe(20);
+  });
+
+  it('mène du titre au monde à la souris seule', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneTitre('brume-3f7a'));
+
+    /** Un clic, puis les trames qu'il faut pour que la scène s'installe. */
+    const cliquer = async (x: number, y: number): Promise<void> => {
+      banc.entrees.cliquer(x, y);
+      await banc.trameAsync();
+      banc.entrees.relacherClic();
+      for (let i = 0; i < 3; i++) await banc.trameAsync();
+    };
+
+    // Sans sauvegarde, « Nouvelle partie » est la première entrée, dessinée à y = 70.
+    await cliquer(VIRTUAL_WIDTH / 2, 72);
+
+    // L'écran de seed empile ses deux options sous un texte de hauteur variable : le
+    // test refait la mesure, et le clic ne tombe juste que si les deux concordent.
+    const hauteurTexte =
+      banc.jeu.peintre.decouper(banc.jeu.t('titre.seedLibre'), VIRTUAL_WIDTH - 60).length *
+      banc.jeu.peintre.hauteurLigne;
+    await cliquer(VIRTUAL_WIDTH / 2, 94 + hauteurTexte + 14); // « Commencer »
+
+    // La troisième carte de starter, dessinée à x = 24 + 2 × 96.
+    await cliquer(24 + 2 * 96 + 30, 100);
+
+    // Puis « Oui » dans la question de confirmation, à la souris elle aussi.
+    for (let i = 0; i < 30 && banc.jeu.sommet?.nom === 'titre'; i++) {
+      await cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 26);
+    }
+
+    expect(banc.jeu.sommet?.nom).toBe('overworld');
+    expect(banc.jeu.state.equipe).toHaveLength(1);
+    expect(banc.jeu.state.equipe[0]!.speciesId).toBe(banc.jeu.monde.starters[2]);
   });
 });

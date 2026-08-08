@@ -52,6 +52,7 @@ import { experienceForLevel } from '../data/stats.ts';
 import type { Dresseur } from '../world/entities.ts';
 import { badgeDe, toutesLesArenesVaincues } from '../world/worldgen.ts';
 import { COULEURS } from '../ui/draw.ts';
+import { viser, viserGrille, type Colonne, type Grille } from '../ui/liste.ts';
 
 export interface Rencontre {
   readonly genre: 'sauvage' | 'dresseur';
@@ -282,9 +283,46 @@ export class SceneCombat implements Scene {
     this.defilement = 0;
   }
 
+  /**
+   * Géométrie de la grille à deux colonnes : les quatre actions, les quatre attaques.
+   *
+   * Les valeurs suivent celles de `dessinerMenu`. Les décaler de dix pixels vers la
+   * gauche n'est pas un détail : c'est là qu'est dessiné le chevron de sélection, et
+   * cliquer dessus doit compter.
+   */
+  private grilleMenu(cases: number, decalage: number, largeurColonne: number): Grille {
+    return {
+      x: decalage - 10,
+      y: VIRTUAL_HEIGHT - HAUTEUR_MENU + 7,
+      largeurColonne,
+      pas: 14,
+      colonnes: 2,
+      cases,
+    };
+  }
+
+  /** Géométrie de la tranche visible d'une liste déroulante du panneau de combat. */
+  private colonneMenu(nombre: number): Colonne {
+    return {
+      x: 10,
+      largeur: VIRTUAL_WIDTH - 26,
+      y: VIRTUAL_HEIGHT - HAUTEUR_MENU + 5,
+      pas: 12,
+      lignes: Math.min(LIGNES_VISIBLES, nombre - this.defilement),
+      depuis: this.defilement,
+    };
+  }
+
+  /** Le pointeur sur le panneau : il déplace la sélection, son clic la valide. */
+  private validee(jeu: Jeu, zone: Colonne | Grille): boolean {
+    const { survol, valide } = 'colonnes' in zone ? viserGrille(jeu.entrees, zone) : viser(jeu.entrees, zone);
+    if (survol !== null) this.selection = survol;
+    return jeu.entrees.pressee('valider') || valide;
+  }
+
   private menuRacine(jeu: Jeu): void {
     this.naviguer(jeu, 4, 2);
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!this.validee(jeu, this.grilleMenu(4, 20, Math.floor((VIRTUAL_WIDTH - 40) / 2)))) return;
     if (this.selection === 0) this.allerAu('attaques');
     else if (this.selection === 1) this.allerAu('sac');
     else if (this.selection === 2) this.allerAu('equipe');
@@ -298,7 +336,7 @@ export class SceneCombat implements Scene {
       this.allerAu('racine');
       return;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!this.validee(jeu, this.grilleMenu(attaques.length, 16, Math.floor((VIRTUAL_WIDTH - 32) / 2)))) return;
     if ((attaques[this.selection]?.pp ?? 0) <= 0) {
       jeu.dialogue.dire(jeu.t('combat.plusDePp'));
       return;
@@ -313,7 +351,7 @@ export class SceneCombat implements Scene {
       this.allerAu('racine');
       return;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!this.validee(jeu, this.colonneMenu(objets.length))) return;
 
     const choisi = objets[this.selection];
     if (!choisi) return;
@@ -340,7 +378,7 @@ export class SceneCombat implements Scene {
       this.allerAu('racine');
       return;
     }
-    if (!jeu.entrees.pressee('valider')) return;
+    if (!this.validee(jeu, this.colonneMenu(equipe.length))) return;
 
     const choisi = equipe[this.selection];
     if (!choisi) return;
