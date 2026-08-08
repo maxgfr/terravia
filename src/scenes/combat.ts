@@ -21,6 +21,7 @@ import {
   type Action,
   type BattleEvent,
   type BattleState,
+  type Cote,
 } from '../battle/engine.ts';
 import {
   apprendreAttaque,
@@ -77,7 +78,23 @@ export class SceneCombat implements Scene {
   private selection = 0;
   private defilement = 0;
   private attente = false;
+
+  // ── Animation ──────────────────────────────────────────────────────────────
+  // Purement décorative : rien ici ne touche à l'état du combat, qui est déjà résolu
+  // quand ces valeurs bougent. Une animation ne peut donc pas changer une règle.
   private tremblement = 0;
+  private coteFrappe: Cote | null = null;
+  /** Glissement d'entrée, de 1 (hors cadre) à 0 (en place). */
+  private entree = 1;
+  /** Chute d'une créature vaincue, de 1 (debout) à 0 (à terre). */
+  private readonly chute: Record<Cote, number> = { joueur: 0, adversaire: 0 };
+  /**
+   * Ratio de points de vie **affiché**, qui rattrape le réel.
+   *
+   * La barre sautait d'un coup à sa nouvelle valeur : on lisait le résultat sans voir
+   * le coup porter. La faire glisser est ce qui donne au combat sa lisibilité.
+   */
+  private readonly pvAffiches: Record<Cote, number> = { joueur: 1, adversaire: 1 };
 
   private readonly rencontre: Rencontre;
   private readonly reprise: CombatEnCours | null;
@@ -155,6 +172,8 @@ export class SceneCombat implements Scene {
   private demarrer(jeu: Jeu): void {
     const mien = jeu.state.equipe[this.indexJoueur]!;
     this.state = creerCombat(mien, this.adversaire, this.rencontre.genre);
+    this.reinitialiserAnimation('joueur');
+    this.reinitialiserAnimation('adversaire');
     marquerVu(jeu.state, this.adversaire.speciesId);
 
     const nom = jeu.nomCreature(this.adversaire);
@@ -188,7 +207,7 @@ export class SceneCombat implements Scene {
     // L'horloge ne tournait que dans le monde parcouru : un long combat la figeait, et
     // le temps de jeu affiché sous-estimait d'autant. Combattre, c'est jouer.
     avancerTemps(jeu.state, step * 1000);
-    if (this.tremblement > 0) this.tremblement = Math.max(0, this.tremblement - step * 4);
+    this.animer(step);
 
     if (jeu.dialogue.actif) {
       jeu.dialogue.mettreAJour(step, jeu.entrees);
@@ -210,6 +229,39 @@ export class SceneCombat implements Scene {
         this.menuEquipe(jeu);
         break;
     }
+  }
+
+  /**
+   * Fait avancer les animations d'une trame.
+   *
+   * Tout converge vers l'état réel : la barre rattrape les points de vie, la secousse
+   * s'éteint, l'entrée se termine. Aucune ne bloque le jeu — si l'on presse une touche,
+   * l'action part et l'animation finit toute seule.
+   */
+  private animer(step: number): void {
+    if (this.tremblement > 0) this.tremblement = Math.max(0, this.tremblement - step * 4);
+    if (this.entree > 0) this.entree = Math.max(0, this.entree - step * 2.6);
+
+    for (const cote of ['joueur', 'adversaire'] as const) {
+      const combattant = cote === 'joueur' ? this.state.joueur : this.state.adversaire;
+      const vise = combattant.instance.pv / pvMax(combattant.instance);
+      // Rattrapage proportionnel puis plancher constant : sans le plancher, la barre
+      // s'approche indéfiniment sans jamais arriver.
+      const ecart = vise - this.pvAffiches[cote];
+      const pas = Math.sign(ecart) * Math.max(Math.abs(ecart) * step * 6, step * 0.35);
+      this.pvAffiches[cote] =
+        Math.abs(ecart) < 0.004 ? vise : this.pvAffiches[cote] + Math.max(-Math.abs(ecart), Math.min(Math.abs(ecart), pas));
+
+      if (this.chute[cote] > 0) this.chute[cote] = Math.max(0, this.chute[cote] - step * 1.8);
+    }
+  }
+
+  /** Remet les animations à leur début quand une créature entre en lice. */
+  private reinitialiserAnimation(cote: Cote): void {
+    const combattant = cote === 'joueur' ? this.state.joueur : this.state.adversaire;
+    this.pvAffiches[cote] = combattant.instance.pv / pvMax(combattant.instance);
+    this.chute[cote] = 0;
+    this.entree = 1;
   }
 
   private naviguer(jeu: Jeu, nombre: number, colonnes = 1): void {
@@ -302,6 +354,7 @@ export class SceneCombat implements Scene {
     }
     this.indexJoueur = this.selection;
     this.state.joueur = creerCombattant(choisi);
+    this.reinitialiserAnimation('joueur');
     jeu.dialogue.dire(jeu.t('combat.envoie', { nom: jeu.nomCreature(choisi) }));
     this.agir(jeu, { kind: 'changer' });
   }
@@ -320,7 +373,13 @@ export class SceneCombat implements Scene {
     for (const evenement of evenements) {
       const message = this.decrire(jeu, evenement);
       if (message) jeu.dialogue.dire(message);
-      if (evenement.type === 'degats' && evenement.montant > 0) this.tremblement = 1;
+      // La secousse suit celui qui encaisse : elle s'appliquait à l'adversaire même
+      // quand c'était nous qui prenions le coup.
+      if (evenement.type === 'degats' && evenement.montant > 0) {
+        this.tremblement = 1;
+        this.coteFrappe = evenement.cible;
+      }
+      if (evenement.type === 'ko') this.chute[evenement.cible] = 1;
     }
     this.attente = true;
     jeu.dialogue.puis(() => {
@@ -460,6 +519,7 @@ export class SceneCombat implements Scene {
       this.indexAdverse = this.rencontre.adversaires.indexOf(restants[suivant]!);
       this.state.adversaire = creerCombattant(this.adversaire);
       this.state.issue = null;
+      this.reinitialiserAnimation('adversaire');
       marquerVu(jeu.state, this.adversaire.speciesId);
       this.apprendreEnsuite(jeu, gagnante, aChoisir, () => {
         jeu.dialogue.dire(
@@ -543,6 +603,7 @@ export class SceneCombat implements Scene {
       this.indexJoueur = suivant;
       this.state.joueur = creerCombattant(debout[0]!);
       this.state.issue = null;
+      this.reinitialiserAnimation('joueur');
       jeu.dialogue.dire(jeu.t('combat.envoie', { nom: jeu.nomCreature(debout[0]!) }));
       this.jouer(jeu, evenementsEntree(this.state, 'joueur'));
       return;
@@ -573,30 +634,58 @@ export class SceneCombat implements Scene {
     peintre.remplir(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, '#1b2430');
     peintre.remplir(0, horizon, VIRTUAL_WIDTH, VIRTUAL_HEIGHT - horizon, '#2a3a2c');
 
-    const secousse = this.tremblement > 0 ? Math.round(Math.sin(this.tremblement * 26) * 2) : 0;
+    // Chaque camp entre par son bord et glisse jusqu'à sa place, encaisse en tremblant,
+    // et s'affaisse quand il tombe. Trois signaux distincts, sur trois axes distincts.
+    const secousse = (cote: Cote): number =>
+      this.tremblement > 0 && this.coteFrappe === cote ? Math.round(Math.sin(this.tremblement * 26) * 3) : 0;
+    const glissement = (sens: number): number => Math.round(this.entree * sens * (VIRTUAL_WIDTH / 2 + 64));
+    // Une créature vaincue s'efface en s'enfonçant. `chute` part de 1 et décroît, donc
+    // elle sert directement d'opacité, et son complément de descente.
+    const affaissement = (cote: Cote): { opacite: number; bas: number } =>
+      this.chute[cote] > 0
+        ? { opacite: this.chute[cote], bas: Math.round((1 - this.chute[cote]) * 14) }
+        : { opacite: 1, bas: 0 };
 
-    // L'adversaire se tient au-dessus de l'horizon, le nôtre en contrebas, dos tourné.
-    peintre.creature(this.adversaire.speciesId, 'face', VIRTUAL_WIDTH - 96 + secousse, horizon - 74, {
-      echelle: 1,
-    });
-    peintre.creature(this.creatureJoueur.speciesId, 'dos', 26, utile - 62, { echelle: 1.25 });
+    const adverse = affaissement('adversaire');
+    peintre.creature(
+      this.adversaire.speciesId,
+      'face',
+      VIRTUAL_WIDTH - 96 + secousse('adversaire') + glissement(1),
+      horizon - 74 + adverse.bas,
+      { echelle: 1, opacite: adverse.opacite },
+    );
 
-    this.dessinerJauge(jeu, this.adversaire, 8, 10, false);
-    this.dessinerJauge(jeu, this.creatureJoueur, VIRTUAL_WIDTH - 130, utile - 56, true);
+    const mien = affaissement('joueur');
+    peintre.creature(
+      this.creatureJoueur.speciesId,
+      'dos',
+      26 + secousse('joueur') + glissement(-1),
+      utile - 62 + mien.bas,
+      { echelle: 1.25, opacite: mien.opacite },
+    );
+
+    this.dessinerJauge(jeu, this.adversaire, 8, 10, false, this.pvAffiches.adversaire);
+    this.dessinerJauge(jeu, this.creatureJoueur, VIRTUAL_WIDTH - 130, utile - 56, true, this.pvAffiches.joueur);
 
     if (!jeu.dialogue.actif && !this.attente) this.dessinerMenu(jeu);
     jeu.dialogue.dessiner();
   }
 
-  private dessinerJauge(jeu: Jeu, creature: CreatureInstance, x: number, y: number, avecXp: boolean): void {
+  private dessinerJauge(
+    jeu: Jeu,
+    creature: CreatureInstance,
+    x: number,
+    y: number,
+    avecXp: boolean,
+    ratioAffiche: number,
+  ): void {
     const peintre = jeu.peintre;
     peintre.panneau(x, y, 122, avecXp ? 40 : 34);
     peintre.texte(jeu.nomCreature(creature), x + 8, y + 6);
     peintre.texteDroite(jeu.t('fiche.niveau', { niveau: creature.niveau }), x + 114, y + 6);
 
-    const ratio = creature.pv / pvMax(creature);
     peintre.texte(jeu.t('fiche.pv'), x + 8, y + 18, { couleur: COULEURS.texteAttenue });
-    peintre.barrePv(x + 26, y + 19, 88, ratio);
+    peintre.barrePv(x + 26, y + 19, 88, Math.max(0, Math.min(1, ratioAffiche)));
 
     // L'altération se lit à la jauge : c'est la seule place où le joueur peut vérifier
     // qu'il est toujours empoisonné avant de choisir son tour.

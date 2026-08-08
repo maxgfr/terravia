@@ -53,6 +53,7 @@ import { LANGUES } from '../src/i18n/index.ts';
 import { entrerDansLaPartie } from '../src/scenes/partie.ts';
 import { chargerDepuisTexte, exporterPartie } from '../src/save/serialize.ts';
 import { lireSauvegardeLocale } from '../src/save/storage.ts';
+import { pvMax } from '../src/game/creature.ts';
 
 /** Compte les appels de dessin : un écran qui ne dessine rien est un écran noir. */
 let appelsDessin = 0;
@@ -930,6 +931,88 @@ describe('reprise d’un combat interrompu', () => {
     );
     const repris = reprendre(JSON.stringify(banc.jeu.documentDePartie()));
     expect(repris.jeu.sommet?.nom).toBe('overworld');
+  });
+});
+
+describe('animations de combat', () => {
+  function bancAnime(): Banc {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(99), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'mulotin',
+        niveau: 30,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.state.equipe[0]!.moves = [{ id: 'chargeLourde', pp: 20 }];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(100), {
+            uid: 'sauvage-a',
+            speciesId: 'plumelle',
+            niveau: 25,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    return banc;
+  }
+
+  /**
+   * L'essentiel : une animation ne doit jamais retarder le jeu. Elle décore un état
+   * déjà résolu — le moteur a tranché avant que le premier pixel ne bouge.
+   */
+  it('n’empêche jamais de jouer un combat jusqu’au bout', () => {
+    const banc = bancAnime();
+    for (let i = 0; i < 900 && banc.jeu.sommet?.nom === 'combat'; i++) {
+      banc.entrees.presser('valider');
+      banc.trame();
+    }
+    expect(banc.jeu.sommet?.nom).toBe('overworld');
+  });
+
+  it('fait rattraper la barre de vie au lieu de la faire sauter', () => {
+    const banc = bancAnime();
+    // On déroule l'ouverture, puis on inflige des dégâts.
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    const adverse = banc.jeu.state.combat!.adversaires[0]!;
+    adverse.pv = Math.floor(pvMax(adverse) / 2);
+
+    // La barre ne peut pas être à sa cible dès la trame suivante…
+    banc.trame();
+    const scene = banc.jeu.sommet as unknown as { pvAffiches: Record<string, number> };
+    expect(scene.pvAffiches.adversaire, 'la barre doit rattraper, pas sauter').toBeGreaterThan(0.55);
+
+    // …mais elle doit y arriver, et s'arrêter exactement dessus.
+    for (let i = 0; i < 300; i++) banc.trame();
+    expect(scene.pvAffiches.adversaire).toBeCloseTo(0.5, 2);
+  });
+
+  it('dessine sans erreur pendant l’entrée et la chute', () => {
+    const banc = bancAnime();
+    // Première trame : les créatures glissent encore depuis les bords.
+    appelsDessin = 0;
+    debordements = [];
+    banc.trame();
+    expect(appelsDessin).toBeGreaterThan(20);
+
+    // Puis on abat l'adversaire et on laisse la chute se jouer.
+    for (let i = 0; i < 900 && banc.jeu.sommet?.nom === 'combat'; i++) {
+      banc.entrees.presser('valider');
+      banc.trame();
+      if (i % 7 === 0) banc.trame();
+    }
+    expect(debordements.map((d) => d.texte)).toEqual([]);
   });
 });
 

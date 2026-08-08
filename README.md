@@ -102,7 +102,7 @@ You can also export a single creature and import it into another game.
 
 ## Tests
 
-287 tests, run in continuous integration before every deploy. The useful ones don't check
+298 tests, run in continuous integration before every deploy. The useful ones don't check
 details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;
