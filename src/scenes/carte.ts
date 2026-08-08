@@ -46,13 +46,16 @@ const TEINTES: Record<TileId, string> = {
 };
 
 /**
- * Côté d'un point de la miniature, en pixels virtuels.
+ * Côté d'un point de la miniature, déduit de la place restante.
  *
- * Quatre et pas cinq : à cinq, les 36 lignes de la région occupaient 180 pixels et
- * repoussaient la bande de progression et la légende sous le bord de l'écran, où elles
- * étaient simplement invisibles.
+ * Une valeur fixe repoussait la bande de progression et la légende sous le bord
+ * inférieur, où elles étaient simplement invisibles — d'abord à cinq pixels quand la
+ * hauteur était figée, puis à quatre dès qu'on a ajouté une ligne de légende. On mesure
+ * plutôt que de deviner : la miniature prend ce qui reste une fois le bas réservé.
  */
-const POINT = 4;
+function cotePoint(hauteurRegion: number): number {
+  return Math.max(2, Math.min(6, Math.floor((VIRTUAL_HEIGHT - 92) / hauteurRegion)));
+}
 
 export class SceneCarte implements Scene {
   readonly nom = 'carte';
@@ -87,6 +90,7 @@ export class SceneCarte implements Scene {
     );
 
     // ── Miniature de la région ──────────────────────────────────────────────
+    const POINT = cotePoint(region.height);
     const largeur = region.width * POINT;
     const hauteur = region.height * POINT;
     const originX = Math.round((VIRTUAL_WIDTH - largeur) / 2);
@@ -116,6 +120,17 @@ export class SceneCarte implements Scene {
       peintre.remplir(originX + entite.x * POINT, originY + entite.y * POINT, POINT, POINT, '#f0d878');
     }
 
+    // Services : le lieu de soin et la boutique. Ils se confondaient avec les autres
+    // personnages du village, et rien n'indiquait où remettre son équipe sur pied ni où
+    // acheter des prismes — deux questions qu'on se pose dès la première heure.
+    for (const entite of region.entites) {
+      if (entite.kind !== 'service') continue;
+      const px = originX + entite.x * POINT;
+      const py = originY + entite.y * POINT;
+      peintre.remplir(px - 1, py - 1, POINT + 2, POINT + 2, COULEURS.fond);
+      peintre.remplir(px, py, POINT, POINT, entite.service === 'soin' ? '#7ee7b2' : '#f0d878');
+    }
+
     // Le joueur clignote : sur une miniature dense, un point fixe se perd.
     if (Math.floor(this.clignotement * 3) % 2 === 0) {
       const px = originX + jeu.state.joueur.x * POINT;
@@ -141,15 +156,37 @@ export class SceneCarte implements Scene {
         8,
         courante ? COULEURS.selection : visitee ? COULEURS.pvHaut : COULEURS.pvFond,
       );
-      // Les arènes se repèrent sur la bande : c'est ce qui donne au joueur une idée du
-      // chemin qu'il lui reste, maintenant que le parcours change à chaque seed.
+      // Arènes et lieux habités se repèrent sur la bande : la première donne une idée du
+      // chemin restant, le second dit où revenir se soigner et se ravitailler. Le
+      // parcours changeant à chaque seed, rien d'autre ne l'apprend au joueur.
       if (plan.role === 'arene' || plan.role === 'sanctuaire') {
         peintre.remplir(x + 2, bandeY - 3, pas - 4, 2, COULEURS.texteAccent);
+      } else if (plan.role === 'bourg' || plan.role === 'village') {
+        peintre.remplir(x + 2, bandeY - 3, pas - 4, 2, COULEURS.pvHaut);
       }
       if (index > 0) peintre.remplir(x - 2, bandeY + 3, 4, 2, COULEURS.texteAttenue);
     }
 
-    peintre.texteCentre(jeu.t('carte.legende'), VIRTUAL_WIDTH / 2, bandeY + 12, {
+    // Légende à pastilles : les couleurs de la miniature ne se devinent pas.
+    const reperes: Array<[string, string]> = [
+      ['#e05a4a', jeu.t('carte.vous')],
+      ['#7ee7b2', jeu.t('carte.soin')],
+      ['#f0d878', jeu.t('carte.objets')],
+      [COULEURS.selection, jeu.t('carte.sortie')],
+    ];
+    const largeurLegende = reperes.reduce(
+      (somme, [, libelle]) => somme + 8 + peintre.largeurTexte(libelle) + 10,
+      0,
+    );
+    let legendeX = Math.max(10, Math.round((VIRTUAL_WIDTH - largeurLegende) / 2));
+    for (const [couleur, libelle] of reperes) {
+      peintre.remplir(legendeX, bandeY + 14, 5, 5, couleur);
+      peintre.texte(libelle, legendeX + 8, bandeY + 12, { couleur: COULEURS.texteAttenue });
+      legendeX += 8 + peintre.largeurTexte(libelle) + 10;
+    }
+
+    // Repliée : la phrase dépasse la largeur minimale en français comme en anglais.
+    peintre.texteCentreBloc(jeu.t('carte.legende'), VIRTUAL_WIDTH / 2, bandeY + 24, VIRTUAL_WIDTH - 32, {
       couleur: COULEURS.texteAttenue,
     });
   }

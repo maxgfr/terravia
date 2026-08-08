@@ -90,7 +90,12 @@ export class SceneOverworld implements Scene {
   private lancerDidacticiel(jeu: Jeu): void {
     if (aDrapeau(jeu.state, 'didacticiel')) return;
     poserDrapeau(jeu.state, 'didacticiel');
-    jeu.dialogue.dire(jeu.t('didacticiel.1'), jeu.t('didacticiel.2'), jeu.t('didacticiel.3'));
+    jeu.dialogue.dire(
+      jeu.t('didacticiel.1'),
+      jeu.t('didacticiel.2'),
+      jeu.t('didacticiel.3'),
+      jeu.t('didacticiel.4'),
+    );
     jeu.dialogue.puis(() => jeu.sauvegarderLocalement());
   }
 

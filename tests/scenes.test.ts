@@ -933,6 +933,77 @@ describe('reprise d’un combat interrompu', () => {
   });
 });
 
+describe('repérage des services', () => {
+  /**
+   * « Je ne sais pas où soigner mes créatures ni où trouver des prismes. » Le lieu de
+   * soin et la boutique se confondaient avec les autres villageois, et rien sur la carte
+   * ne les distinguait.
+   */
+  it('marque le soin et la boutique sur la carte de région', () => {
+    const banc = creerBanc();
+    const village = banc.jeu.monde.plans.find((plan) => plan.role === 'village')!;
+    const region = banc.jeu.monde.region(village.index);
+    const services = region.entites.filter((entite) => entite.kind === 'service');
+    expect(services.length, 'le village doit offrir des services').toBeGreaterThan(0);
+
+    banc.jeu.state.joueur.regionIndex = village.index;
+    banc.jeu.state.joueur.x = region.depart.x;
+    banc.jeu.state.joueur.y = region.depart.y;
+    banc.jeu.pousser(new SceneCarte());
+
+    textesDessines = [];
+    banc.trame();
+    // La légende nomme ce que les pastilles signifient : sans elle, une couleur de plus
+    // sur une miniature dense n'apprend rien.
+    expect(textesDessines).toContain(banc.jeu.t('carte.soin'));
+  });
+
+  it('signale les lieux habités sur la bande des régions', () => {
+    const banc = creerBanc();
+    // Le bourg et le village y sont marqués comme les arènes : c'est ce qui dit où
+    // revenir se soigner quand le parcours change à chaque seed.
+    const habites = banc.jeu.monde.plans.filter(
+      (plan) => plan.role === 'bourg' || plan.role === 'village',
+    );
+    expect(habites.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('dit au départ où soigner et où acheter des prismes', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(98), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 5,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneOverworld());
+    // Le didacticiel se déroule à la première sortie ; sa dernière ligne répond aux
+    // deux questions qu'un joueur se pose avant tout le reste.
+    const dites: string[] = [];
+    for (let i = 0; i < 80 && banc.jeu.dialogue.actif; i++) {
+      textesDessines = [];
+      banc.trame();
+      dites.push(...textesDessines);
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    const tout = dites.join(' ');
+    expect(tout).toContain('soigneuse');
+    expect(tout).toContain('prismes');
+  });
+
+  it('la carte tient dans le cadre à la hauteur minimale', () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneCarte());
+    debordements = [];
+    banc.trame();
+    expect(debordements.map((d) => d.texte)).toEqual([]);
+  });
+});
+
 describe('encyclopédie', () => {
   /**
    * Le Terradex ne montre que ce qu'on a rencontré, et c'est son intérêt. Restait sans

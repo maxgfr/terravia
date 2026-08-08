@@ -106,7 +106,11 @@ const FR = {
     'La partie s’enregistre toute seule dans ce navigateur. Depuis le menu, vous pouvez l’exporter en fichier JSON, puis la réimporter ici ou ailleurs — glissez simplement le fichier sur la page.',
 
   // ── Carte ──────────────────────────────────────────────────────────────────
-  'carte.legende': '♦ vous · ▶ sortie · ♥ objet',
+  'carte.soin': 'Soin',
+  'carte.objets': 'Objet',
+  'carte.sortie': 'Sortie',
+  'carte.vous': 'Vous',
+  'carte.legende': 'Bande du bas : le parcours, arènes et villages marqués.',
   'carte.progression': 'Région {index} sur {total}',
 
   // ── Didacticiel de première partie ─────────────────────────────────────────
@@ -116,6 +120,8 @@ const FR = {
     'Marchez avec les flèches. Parlez aux gens et lisez les panneaux avec Entrée : plusieurs donnent de bons conseils.',
   'didacticiel.3':
     'Les hautes herbes sombres abritent des créatures sauvages. Ouvrez le menu avec Échap pour votre équipe, votre sac et la carte.',
+  'didacticiel.4':
+    'Dans les bourgs et les villages, une soigneuse remet votre équipe sur pied gratuitement, et un marchand vend des prismes de capture. Parlez-leur avec Entrée.',
 
   // ── Sauvegarde ─────────────────────────────────────────────────────────────
   'sauvegarde.maintenant': 'Enregistrer maintenant',
@@ -391,7 +397,11 @@ const EN: Record<CleTexte, string> = {
   'aide.sauvegarde.texte':
     'The game saves itself in this browser. From the menu you can export it as a JSON file and import it back here or elsewhere — just drop the file onto the page.',
 
-  'carte.legende': '♦ you · ▶ exit · ♥ item',
+  'carte.soin': 'Healing',
+  'carte.objets': 'Item',
+  'carte.sortie': 'Exit',
+  'carte.vous': 'You',
+  'carte.legende': 'Bottom strip: the route, arenas and towns marked.',
   'carte.progression': 'Region {index} of {total}',
 
   'didacticiel.1': 'You are outside. The road climbs due north, region after region, up to the first arena.',
@@ -399,6 +409,8 @@ const EN: Record<CleTexte, string> = {
     'Walk with the arrows. Talk to people and read signs with Enter: several of them give good advice.',
   'didacticiel.3':
     'The dark tall grass hides wild creatures. Open the menu with Escape for your team, your bag and the map.',
+  'didacticiel.4':
+    'In hamlets and villages a healer puts your party back on its feet for free, and a merchant sells capture prisms. Talk to them with Enter.',
 
   'sauvegarde.maintenant': 'Save now',
   'sauvegarde.impossible': 'This browser refuses to save. Export a file instead.',
