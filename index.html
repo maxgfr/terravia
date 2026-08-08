@@ -56,30 +56,6 @@
         touch-action: none;
       }
 
-      /* Réglages : toujours accessible, au-dessus de tout, coin supérieur droit. */
-      #parametres {
-        position: fixed;
-        top: calc(8px + env(safe-area-inset-top));
-        right: calc(8px + env(safe-area-inset-right));
-        z-index: 10;
-        width: 38px;
-        height: 38px;
-        display: grid;
-        place-items: center;
-        font: inherit;
-        font-size: 18px;
-        color: #e6edf3;
-        background: rgba(11, 15, 20, 0.55);
-        border: 1px solid rgba(244, 241, 230, 0.24);
-        border-radius: 10px;
-        cursor: pointer;
-        backdrop-filter: blur(4px);
-      }
-      #parametres:hover,
-      #parametres:focus-visible {
-        background: rgba(224, 160, 60, 0.45);
-        outline: none;
-      }
       /* Écran affiché avant que le JS ne prenne la main, et si le JS échoue. */
       #boot {
         position: fixed;
@@ -170,7 +146,6 @@
   </head>
   <body>
     <div id="app"><div id="scene"></div></div>
-    <button id="parametres" type="button" aria-label="Paramètres" title="Paramètres">⚙</button>
     <div id="boot">TERRAVIA</div>
     <noscript>
       <div style="position: fixed; inset: 0; display: grid; place-items: center">

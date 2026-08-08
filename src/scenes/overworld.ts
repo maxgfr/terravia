@@ -144,7 +144,10 @@ export class SceneOverworld implements Scene {
       return;
     }
 
-    if (jeu.entrees.pressee('menu')) {
+    // Échap ouvre le menu autant que M. La touche produit « annuler », qui ne servait à
+    // rien dans le monde parcouru — pendant que l'aide, le didacticiel et le README
+    // promettaient tous les trois qu'elle ouvrait le menu.
+    if (jeu.entrees.pressee('menu') || jeu.entrees.pressee('annuler')) {
       jeu.pousser(new SceneMenu());
       return;
     }

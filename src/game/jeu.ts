@@ -33,8 +33,8 @@ export interface Scene {
   /**
    * Appelé sur toute la pile juste avant une écriture de la partie : la scène y dépose
    * ce qu'elle est seule à connaître. Le combat s'en sert pour enregistrer l'échange en
-   * cours, si bien qu'une sauvegarde déclenchée à n'importe quel instant — l'engrenage,
-   * la fermeture de l'onglet — le capte tel qu'il est, même sous un autre écran.
+   * cours, si bien qu'une sauvegarde déclenchée à n'importe quel instant — un écran de
+   * réglages ouvert par-dessus, la fermeture de l'onglet — le capte tel qu'il est.
    */
   avantSauvegarde?(jeu: Jeu): void;
   /** Une scène opaque dispense de dessiner celles du dessous. */
@@ -91,18 +91,6 @@ export class Jeu {
   remplacer(scene: Scene): void {
     while (this.pile.length > 0) this.retirer();
     this.pousser(scene);
-  }
-
-  /**
-   * Ouvre les réglages, quel que soit l'écran courant.
-   *
-   * Appelé par l'engrenage du coin supérieur droit, qui vit dans le DOM et non sur le
-   * canvas : il reste donc atteignable même pendant un dialogue. On refuse simplement
-   * de l'empiler deux fois.
-   */
-  ouvrirParametres(fabrique: () => Scene): void {
-    if (this.sommet?.nom === 'parametres') return;
-    this.pousser(fabrique());
   }
 
   mettreAJour(step: number): void {
@@ -186,9 +174,9 @@ export class Jeu {
    */
   documentDePartie(): SaveFile | null {
     if (this.state.equipe.length === 0) return null;
-    // Toute la pile est consultée, pas seulement son sommet : ouvrir l'engrenage pendant
-    // un combat pose les réglages par-dessus lui, et c'est le combat, plus bas, qui a
-    // quelque chose à déposer.
+    // Toute la pile est consultée, pas seulement son sommet : ouvrir les réglages pendant
+    // un combat les pose par-dessus lui, et c'est le combat, plus bas, qui a quelque
+    // chose à déposer.
     for (const scene of this.pile) scene.avantSauvegarde?.(this);
     return exporterPartie(this.state, new Date().toISOString());
   }

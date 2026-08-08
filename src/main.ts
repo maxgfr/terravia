@@ -15,7 +15,6 @@ import { Jeu } from './game/jeu.ts';
 import { creerPartie } from './game/state.ts';
 import { installerDepotFichier, lireLanguePreferee } from './save/storage.ts';
 import { SceneTitre } from './scenes/titre.ts';
-import { SceneParametres } from './scenes/parametres.ts';
 import { traiterImport } from './scenes/partie.ts';
 import { Peintre } from './ui/draw.ts';
 import { langueParDefaut } from './i18n/preference.ts';
@@ -55,12 +54,6 @@ async function demarrer(): Promise<void> {
   // Un fichier déposé n'importe où sur la page est traité comme un import : c'est le
   // chemin le plus court entre « j'ai reçu une sauvegarde » et « je joue ».
   installerDepotFichier((contenu) => traiterImport(jeu, contenu));
-
-  // L'engrenage porte le choix de la langue : il doit rester atteignable depuis
-  // n'importe quel écran, y compris le tout premier, avant d'avoir compris le reste.
-  document.getElementById('parametres')?.addEventListener('click', () => {
-    jeu.ouvrirParametres(() => new SceneParametres());
-  });
 
   const boucle = createLoop({
     update: (step) => {

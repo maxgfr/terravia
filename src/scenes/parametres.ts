@@ -1,9 +1,9 @@
 /**
- * Réglages, ouverts par l'engrenage en haut à droite.
+ * Réglages, atteignables depuis l'écran-titre comme depuis le menu de pause.
  *
- * Cet écran est joignable **partout** — écran-titre, monde, menu, combat — parce qu'il
- * porte le choix de la langue : un joueur qui ne comprend pas le premier écran doit
- * pouvoir en changer sans deviner comment naviguer.
+ * Les deux chemins comptent : c'est cet écran qui porte le choix de la langue, et un
+ * joueur qui ne comprend pas le premier écran doit pouvoir en changer avant même de
+ * commencer une partie.
  *
  * C'est aussi ce qui en fait le bon endroit pour l'export. Le même bouton dans le menu de
  * pause n'existe que dans le monde parcouru ; ici, on peut mettre sa partie à l'abri au

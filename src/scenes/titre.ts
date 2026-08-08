@@ -16,6 +16,7 @@ import { choisirFichier, lireSauvegardeLocale } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
 import type { CleTexte } from '../i18n/index.ts';
 import { SceneAide } from './aide.ts';
+import { SceneParametres } from './parametres.ts';
 import { entrerDansLaPartie, traiterImport } from './partie.ts';
 
 type Ecran = 'accueil' | 'seed' | 'starter';
@@ -39,13 +40,21 @@ export class SceneTitre implements Scene {
   }
 
   /**
-   * La langue n'est plus dans ce menu : elle vit dans les réglages, atteignables par
-   * l'engrenage en haut à droite depuis n'importe quel écran.
+   * Les réglages figurent ici en propre.
+   *
+   * Ils vivaient derrière un engrenage flottant, doublon de l'entrée du menu de pause.
+   * L'engrenage retiré, l'écran-titre a besoin de son propre accès : c'est là que se
+   * choisit la langue, et un joueur qui ne comprend pas ce premier écran doit pouvoir
+   * en changer sans deviner comment naviguer.
    */
   private get entrees(): readonly CleTexte[] {
-    return this.aUneSauvegarde
-      ? ['titre.continuer', 'titre.nouvellePartie', 'titre.importer', 'parametres.commentJouer']
-      : ['titre.nouvellePartie', 'titre.importer', 'parametres.commentJouer'];
+    return [
+      ...(this.aUneSauvegarde ? (['titre.continuer'] as const) : []),
+      'titre.nouvellePartie',
+      'titre.importer',
+      'parametres.commentJouer',
+      'menu.parametres',
+    ];
   }
 
   mettreAJour(jeu: Jeu, step: number): void {
@@ -83,6 +92,9 @@ export class SceneTitre implements Scene {
         break;
       case 'parametres.commentJouer':
         jeu.pousser(new SceneAide());
+        break;
+      case 'menu.parametres':
+        jeu.pousser(new SceneParametres());
         break;
     }
   }

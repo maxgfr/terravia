@@ -42,7 +42,7 @@ import { TILES, TILE_IDS } from '../src/world/tiles.ts';
 import { lireTuile } from '../src/world/region.ts';
 
 import { badgeDe, creerMonde, toutesLesArenesVaincues } from '../src/world/worldgen.ts';
-import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../src/core/viewport.ts';
+import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH, cadrer } from '../src/core/viewport.ts';
 import { PAGES_AIDE, SceneAide } from '../src/scenes/aide.ts';
 import { SceneParametres } from '../src/scenes/parametres.ts';
 import { SceneCarte } from '../src/scenes/carte.ts';
@@ -345,6 +345,19 @@ describe('monde parcouru', () => {
     expect(banc.jeu.sommet?.nom).toBe('overworld');
   });
 
+  /**
+   * Échap produit « annuler », qui ne servait à rien dans le monde parcouru — pendant
+   * que l'aide, le didacticiel et le README promettaient tous les trois qu'elle ouvrait
+   * le menu. Elle le fait maintenant, sans cesser d'annuler ailleurs.
+   */
+  it('ouvre aussi le menu sur « annuler », la touche Échap', async () => {
+    const banc = bancEnJeu();
+    await banc.agir('annuler', 2);
+    expect(banc.jeu.sommet?.nom).toBe('menu');
+    await banc.agir('annuler', 2);
+    expect(banc.jeu.sommet?.nom, 'et la même touche le referme').toBe('overworld');
+  });
+
   it('fait avancer l’horloge et le temps de jeu', () => {
     const banc = bancEnJeu();
     const avant = banc.jeu.state.joueur.tempsJeuMs;
@@ -527,12 +540,21 @@ describe('réglages', () => {
     expect(resultat.ok).toBe(true);
   });
 
-  it('ne s’empile jamais deux fois', () => {
+  /**
+   * L'engrenage flottant a disparu : il doublait l'entrée du menu de pause. L'écran-titre
+   * a donc besoin de son propre accès, sans quoi la langue devient inatteignable avant
+   * d'avoir commencé une partie — précisément quand on en a le plus besoin.
+   */
+  it('est atteignable depuis l’écran-titre', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneTitre('brume-3f7a'));
-    banc.jeu.ouvrirParametres(() => new SceneParametres());
-    banc.jeu.ouvrirParametres(() => new SceneParametres());
-    banc.jeu.retirer();
+
+    // Sans sauvegarde : Nouvelle partie, Importer, Comment jouer, Paramètres.
+    for (let i = 0; i < 3; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+    expect(banc.jeu.sommet?.nom).toBe('parametres');
+
+    await banc.agir('annuler', 1);
     expect(banc.jeu.sommet?.nom).toBe('titre');
   });
 });
@@ -861,7 +883,7 @@ describe('reprise d’un combat interrompu', () => {
   it('emporte le combat même quand les réglages sont ouverts par-dessus', () => {
     const banc = bancAvecCombat();
     banc.trame();
-    banc.jeu.ouvrirParametres(() => new SceneParametres());
+    banc.jeu.pousser(new SceneParametres());
     expect(banc.jeu.sommet?.nom).toBe('parametres');
 
     const document = banc.jeu.documentDePartie();
@@ -906,6 +928,57 @@ describe('reprise d’un combat interrompu', () => {
     );
     const repris = reprendre(JSON.stringify(banc.jeu.documentDePartie()));
     expect(repris.jeu.sommet?.nom).toBe('overworld');
+  });
+});
+
+describe('cadrage de l’écran', () => {
+  /**
+   * Avec une largeur virtuelle figée à 320, un écran 16:9 laissait 160 pixels de marge
+   * noire de chaque côté en 1080p, et 320 en 1440p : le jeu flottait au milieu de la
+   * page. C'est la largeur qui s'adapte désormais, pas l'échelle qui se dégrade.
+   */
+  it('remplit la largeur des écrans courants', () => {
+    for (const [largeur, hauteur] of [
+      [1920, 1072],
+      [2560, 1432],
+      [1512, 974],
+      [1440, 892],
+      [1280, 720],
+    ] as const) {
+      const { scale, largeur: virtuelle } = cadrer(largeur, hauteur);
+      const rendu = virtuelle * scale;
+      expect(largeur - rendu, `${largeur}×${hauteur} : marge résiduelle`).toBeLessThanOrEqual(4);
+      // L'échelle reste entière : c'est elle qui garde les pixels carrés.
+      expect(scale, `${largeur}×${hauteur}`).toBe(Math.floor(scale));
+    }
+  });
+
+  /**
+   * Le garde-fou qui compte : décider l'échelle sur la seule hauteur faisait déborder le
+   * canvas de 125 pixels sur un téléphone tenu en portrait.
+   */
+  it('ne déborde jamais de la place disponible', () => {
+    for (let largeur = 240; largeur <= 3600; largeur += 37) {
+      for (const hauteur of [220, 300, 340, 600, 900, 1440]) {
+        const { scale, largeur: virtuelle } = cadrer(largeur, hauteur);
+        expect(virtuelle * scale, `${largeur}×${hauteur} déborde en largeur`).toBeLessThanOrEqual(largeur);
+        expect(VIRTUAL_HEIGHT * scale, `${largeur}×${hauteur} déborde en hauteur`).toBeLessThanOrEqual(hauteur);
+        expect(scale).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('borne la vue pour ne pas devenir absurde en ultra-large', () => {
+    const { largeur } = cadrer(3440, 1432);
+    expect(largeur).toBeLessThanOrEqual(448);
+    // …et ne descend jamais sous la largeur pour laquelle les écrans sont dessinés.
+    expect(cadrer(200, 200).largeur).toBeGreaterThanOrEqual(320);
+  });
+
+  it('donne une largeur paire, pour que le centrage tombe juste', () => {
+    for (let largeur = 300; largeur <= 3000; largeur += 13) {
+      expect(cadrer(largeur, 1000).largeur % 2, `largeur ${largeur}`).toBe(0);
+    }
   });
 });
 

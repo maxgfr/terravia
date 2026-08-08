@@ -3,7 +3,7 @@
  *
  * L'anglais est la langue par défaut : le jeu est publié sur un lien public, et c'est
  * ce que la majorité des visiteurs comprendra. Le français reste complet et se choisit
- * dans les réglages — l'engrenage en haut à droite, atteignable dès le premier écran.
+ * dans les réglages, atteignables depuis l'écran-titre comme depuis le menu de pause.
  *
  * La langue du navigateur n'est **pas** consultée. Elle l'était, et c'était une
  * mauvaise idée : deux personnes ouvrant le même lien voyaient deux jeux différents,

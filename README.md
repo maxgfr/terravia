@@ -16,7 +16,7 @@ opens the sanctum, where the creatures that appear nowhere else can finally be c
 |---|---|
 | **Keyboard** | Arrows or WASD to move · `Enter` / `E` to talk, read, pick up · `Escape` or `M` for the menu |
 | **Touch** | A D-pad and two buttons appear on devices without a mouse |
-| **Settings** | The ⚙ button, top right, on every screen — language, and how to play |
+| **Settings** | From the title screen or the pause menu — language, how to play, save and load |
 
 The interface is available in English and French. English is the default; French is a
 complete translation, not a partial one.
@@ -102,7 +102,7 @@ You can also export a single creature and import it into another game.
 
 ## Tests
 
-282 tests, run in continuous integration before every deploy. The useful ones don't check
+287 tests, run in continuous integration before every deploy. The useful ones don't check
 details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;
@@ -138,8 +138,9 @@ outside the frame fails the build instead of shipping.
 
 - **No building interiors.** Doors are scenery and services keep an outdoor stall.
   Modelling interiors would have doubled the world code for little gain.
-- **Integer scaling only.** The canvas scales by whole numbers so pixels stay square,
-  which leaves some margin on screens around 360 px wide.
+- **Integer scaling only.** The canvas scales by whole numbers so pixels stay square.
+  The virtual width adapts to the screen so the game fills it, but the view is capped:
+  on an ultrawide display, margins come back rather than showing half a region at once.
 - **Trading is trust-based**, as described above.
 
 ## Licence
