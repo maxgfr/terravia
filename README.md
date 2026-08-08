@@ -16,7 +16,7 @@ opens the sanctum, where the creatures that appear nowhere else can finally be c
 |---|---|
 | **Keyboard** | Arrows or WASD to move · `Enter` / `E` to talk, read, pick up · `Escape` or `M` for the menu |
 | **Touch** | A D-pad and two buttons appear on devices without a mouse |
-| **Settings** | From the title screen or the pause menu — language, how to play, save and load |
+| **Settings** | Language, help and the encyclopedia sit directly in the title screen and the pause menu |
 
 The interface is available in English and French. English is the default; French is a
 complete translation, not a partial one.
@@ -102,7 +102,7 @@ You can also export a single creature and import it into another game.
 
 ## Tests
 
-298 tests, run in continuous integration before every deploy. The useful ones don't check
+300 tests, run in continuous integration before every deploy. The useful ones don't check
 details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;

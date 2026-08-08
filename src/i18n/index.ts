@@ -51,7 +51,6 @@ const FR = {
   'menu.reserve': 'Réserve',
   'menu.sauvegarde': 'Sauvegarde',
   'menu.carte': 'Carte',
-  'menu.parametres': 'Paramètres',
   'menu.fermer': 'Fermer',
   'menu.vide': 'Rien ici.',
   'menu.retour': 'Retour',
@@ -67,7 +66,6 @@ const FR = {
   'menu.aucuneEvolution': 'Aucune de vos créatures n’a d’évolution devant elle.',
 
   // ── Paramètres ─────────────────────────────────────────────────────────────
-  'parametres.titre': 'Paramètres',
   'parametres.langue': 'Langue : Français',
   'parametres.commentJouer': 'Comment jouer',
   'parametres.recommencer': 'Revenir à l’écran-titre',
@@ -345,7 +343,6 @@ const EN: Record<CleTexte, string> = {
   'menu.reserve': 'Storage',
   'menu.sauvegarde': 'Save',
   'menu.carte': 'Map',
-  'menu.parametres': 'Settings',
   'menu.fermer': 'Close',
   'menu.vide': 'Nothing here.',
   'menu.retour': 'Back',
@@ -360,7 +357,6 @@ const EN: Record<CleTexte, string> = {
   'menu.pierreQui': 'Which creature should the Waking Stone touch?',
   'menu.aucuneEvolution': 'None of your creatures has an evolution ahead of it.',
 
-  'parametres.titre': 'Settings',
   'parametres.langue': 'Language: English',
   'parametres.commentJouer': 'How to play',
   'parametres.recommencer': 'Back to the title screen',

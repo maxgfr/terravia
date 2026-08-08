@@ -30,10 +30,14 @@ import {
   utiliserObjetSur,
 } from '../game/state.ts';
 import { exporterCreature, exporterPartie, nomFichier } from '../save/serialize.ts';
-import { choisirFichier, telecharger } from '../save/storage.ts';
+import { choisirFichier, enregistrerLanguePreferee, telecharger } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
+import { LANGUES } from '../i18n/index.ts';
+import { makeSeedText } from '../core/rng.ts';
 import { SceneCarte } from './carte.ts';
-import { SceneParametres } from './parametres.ts';
+import { SceneAide } from './aide.ts';
+import { SceneEncyclopedie } from './encyclopedie.ts';
+import { SceneTitre } from './titre.ts';
 import { traiterImport } from './partie.ts';
 
 /** Lignes de réserve affichées d'un coup dans la colonne de droite, selon la place. */
@@ -58,6 +62,13 @@ function resistancesDe(types: readonly ElementType[]): ElementType[] {
 
 type Onglet = 'racine' | 'equipe' | 'fiche' | 'reserve' | 'sac' | 'terradex' | 'espece' | 'sauvegarde';
 
+/**
+ * Tout au même niveau.
+ *
+ * Les réglages vivaient dans un écran poussé par-dessus celui-ci : un menu dans un menu,
+ * pour quatre entrées qui tiennent ici. La langue se bascule sur place, le reste ouvre un
+ * écran qui a sa raison d'être — l'aide, l'encyclopédie.
+ */
 const ENTREES_RACINE = [
   'menu.equipe',
   'menu.reserve',
@@ -65,7 +76,10 @@ const ENTREES_RACINE = [
   'menu.carte',
   'menu.terradex',
   'menu.sauvegarde',
-  'menu.parametres',
+  'parametres.langue',
+  'encyclopedie.titre',
+  'parametres.commentJouer',
+  'parametres.recommencer',
   'menu.fermer',
 ] as const;
 const ENTREES_SAUVEGARDE = [
@@ -170,8 +184,21 @@ export class SceneMenu implements Scene {
       case 'menu.sauvegarde':
         this.aller('sauvegarde');
         break;
-      case 'menu.parametres':
-        jeu.pousser(new SceneParametres());
+      case 'parametres.langue': {
+        // Bascule circulaire, sur place : avec deux langues c'est un aller-retour.
+        const index = LANGUES.indexOf(jeu.langue);
+        jeu.state.langue = LANGUES[(index + 1) % LANGUES.length]!;
+        enregistrerLanguePreferee(jeu.state.langue);
+        break;
+      }
+      case 'encyclopedie.titre':
+        jeu.pousser(new SceneEncyclopedie());
+        break;
+      case 'parametres.commentJouer':
+        jeu.pousser(new SceneAide());
+        break;
+      case 'parametres.recommencer':
+        void this.retournerAuTitre(jeu);
         break;
       default:
         jeu.retirer();
@@ -313,6 +340,20 @@ export class SceneMenu implements Scene {
         );
         jeu.sauvegarderLocalement();
       });
+  }
+
+  /**
+   * Retour à l'écran-titre, après confirmation. La partie n'est pas perdue : elle vient
+   * d'être écrite, et « Continuer » la retrouvera.
+   */
+  private async retournerAuTitre(jeu: Jeu): Promise<void> {
+    jeu.sauvegarderLocalement();
+    const choix = await jeu.dialogue.demander(jeu.t('parametres.confirmerTitre'), [
+      jeu.t('depart.oui'),
+      jeu.t('depart.non'),
+    ]);
+    if (choix !== 0) return;
+    jeu.remplacer(new SceneTitre(makeSeedText(jeu.rng.next())));
   }
 
   private terradex(jeu: Jeu): void {

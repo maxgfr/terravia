@@ -513,6 +513,21 @@ const genererBourg: Generateur = (contexte, portes) => {
     });
   }
 
+  // Une soigneuse au bourg de départ. Il n'y en avait aucune : le premier lieu de soin
+  // du monde était le village, à mi-parcours, et toute la première moitié de la partie
+  // se jouait sans autre recours que les potions achetées d'avance.
+  const soigneuse = caseLibre(contexte, { x: centre.x + 5, y: 13 });
+  if (soigneuse) {
+    entites.push({
+      kind: 'service',
+      id: entiteId(plan.index, 'service', 0),
+      ...soigneuse,
+      service: 'soin',
+      sprite: 'soigneuse',
+      dialogue: 'dialogue.soigneuse',
+    });
+  }
+
   for (let i = 0; i < 3; i++) {
     const place = caseLibre(contexte, { x: centre.x + rng.int(-10, 10), y: centre.y + rng.int(-6, 4) });
     if (!place) continue;

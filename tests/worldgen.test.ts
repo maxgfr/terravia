@@ -433,6 +433,20 @@ describe('génération des régions', () => {
     }
   });
 
+  /**
+   * Le bourg de départ n'avait aucun soigneur : le premier lieu de soin du monde était
+   * le village, à mi-parcours. Toute la première moitié d'une partie se jouait donc sans
+   * autre recours que les potions, et le joueur cherchait en vain où soigner son équipe.
+   */
+  it('offre un lieu de soin dès le bourg de départ', () => {
+    for (const seedText of seeds(20)) {
+      const soins = creerMonde(seedText)
+        .region(0)
+        .entites.filter((entite) => entite.kind === 'service' && entite.service === 'soin');
+      expect(soins.length, `seed ${seedText} : bourg sans soigneuse`).toBeGreaterThan(0);
+    }
+  });
+
   it('offre un lieu de soin au sanctuaire : on y revient pour finir le Terradex', () => {
     for (const seedText of seeds(10)) {
       const monde = creerMonde(seedText);

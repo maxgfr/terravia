@@ -37,11 +37,21 @@
       /* Colonne : la scène prend toute la place disponible, les contrôles tactiles
          occupent le bas. Le canvas est ainsi dimensionné d'après l'espace qui lui
          reste réellement, au lieu de se superposer aux boutons. */
+      /* `inset: 0` dimensionne sur le viewport de **mise en page**, qui inclut la bande
+         masquée par la barre d'adresse d'un navigateur mobile : le bas de la colonne —
+         boîte de dialogue et menu de combat — passait dessous. `100dvh` suit la hauteur
+         réellement visible, y compris quand la barre se rétracte. `100vh` reste en repli
+         pour les navigateurs qui ignorent l'unité dynamique. */
       #app {
         position: fixed;
-        inset: 0;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
         display: flex;
         flex-direction: column;
+        padding-bottom: env(safe-area-inset-bottom);
       }
       /* Aucun rembourrage : le canvas se dimensionne sur la place réelle, et quatre
          pixels de marge se voyaient comme un liseré noir sur téléphone. */

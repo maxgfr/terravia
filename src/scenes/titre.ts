@@ -12,11 +12,11 @@ import { creerCreature } from '../game/creature.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import { accueillirCreature, creerPartie, poserDrapeau, prochainIdentifiant } from '../game/state.ts';
 import { chargerDepuisTexte } from '../save/serialize.ts';
-import { choisirFichier, lireSauvegardeLocale } from '../save/storage.ts';
+import { choisirFichier, enregistrerLanguePreferee, lireSauvegardeLocale } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
-import type { CleTexte } from '../i18n/index.ts';
+import { LANGUES, type CleTexte } from '../i18n/index.ts';
 import { SceneAide } from './aide.ts';
-import { SceneParametres } from './parametres.ts';
+import { SceneEncyclopedie } from './encyclopedie.ts';
 import { entrerDansLaPartie, traiterImport } from './partie.ts';
 
 type Ecran = 'accueil' | 'seed' | 'starter';
@@ -52,8 +52,9 @@ export class SceneTitre implements Scene {
       ...(this.aUneSauvegarde ? (['titre.continuer'] as const) : []),
       'titre.nouvellePartie',
       'titre.importer',
+      'parametres.langue',
+      'encyclopedie.titre',
       'parametres.commentJouer',
-      'menu.parametres',
     ];
   }
 
@@ -93,8 +94,14 @@ export class SceneTitre implements Scene {
       case 'parametres.commentJouer':
         jeu.pousser(new SceneAide());
         break;
-      case 'menu.parametres':
-        jeu.pousser(new SceneParametres());
+      case 'parametres.langue': {
+        const index = LANGUES.indexOf(jeu.langue);
+        jeu.state.langue = LANGUES[(index + 1) % LANGUES.length]!;
+        enregistrerLanguePreferee(jeu.state.langue);
+        break;
+      }
+      case 'encyclopedie.titre':
+        jeu.pousser(new SceneEncyclopedie());
         break;
     }
   }

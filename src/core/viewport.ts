@@ -1,14 +1,16 @@
 /**
  * Le canvas de jeu et sa mise à l'échelle.
  *
- * Le rendu se fait dans une résolution virtuelle agrandie par un facteur **entier** :
- * c'est ce qui garde les pixels carrés, sans flou d'interpolation.
+ * Le rendu se fait dans une résolution virtuelle agrandie pour occuper l'écran. Deux
+ * réglages s'y combinent, et l'un dépend de la densité du support :
  *
- * Les **deux dimensions** s'adaptent au format de l'écran. Figées à 320×208, elles
- * laissaient 160 pixels de marge noire de chaque côté en 1080p et 320 en 1440p, et sur
- * un téléphone en portrait le jeu occupait le tiers supérieur de la page. Élargir la
- * vue plutôt que grossir les pixels remplit l'écran sans rien déformer : on voit
- * simplement un peu plus de monde.
+ *   - le **facteur** est entier sur un écran ordinaire, ce qui garde les pixels carrés ;
+ *     sur un écran à forte densité — tout téléphone — il devient fractionnaire, parce
+ *     que l'arrondi y coûtait un tiers de la taille du contenu sans qu'aucune
+ *     irrégularité ne soit visible à trois pixels physiques par pixel CSS ;
+ *   - les **dimensions** s'adaptent au format. Figées à 320×208, elles laissaient
+ *     160 pixels de bande noire de chaque côté en 1080p, et sur un téléphone en portrait
+ *     le jeu occupait le tiers supérieur de la page.
  *
  * Aucune scène ne code sa mise en page en dur : toutes lisent ces constantes, ce qui
  * rend les dimensions variables sans surprise. Les liaisons de module ESM étant
@@ -21,9 +23,8 @@ export const TILE_SIZE = 16;
  * Bornes des dimensions virtuelles, en pixels.
  *
  * Les minimums sont ceux pour lesquels chaque écran a été dessiné : en dessous, les
- * panneaux ne tiendraient plus. Les maximums ne sont qu'un garde-fou : ils ne mordent
- * qu'à l'échelle 1, donc sur téléphone, là où remplir l'écran importe le plus. Aux
- * échelles supérieures, c'est le facteur entier qui borne naturellement la vue.
+ * panneaux ne tiendraient plus. Ce sont eux qui plafonnent le facteur, et donc la
+ * taille du contenu. Les maximums ne sont qu'un garde-fou contre une vue démesurée.
  */
 const LARGEUR_MIN = 320;
 const LARGEUR_MAX = 1024;
@@ -38,7 +39,7 @@ export let VIRTUAL_WIDTH = LARGEUR_MIN;
 export let VIRTUAL_HEIGHT = HAUTEUR_MIN;
 
 export interface Cadrage {
-  /** Facteur d'agrandissement, entier dès que la place le permet. */
+  /** Facteur d'agrandissement : entier sur écran ordinaire, libre à forte densité. */
   readonly scale: number;
   readonly largeur: number;
   readonly hauteur: number;
@@ -47,14 +48,22 @@ export interface Cadrage {
 /**
  * Décide de l'échelle et des dimensions virtuelles pour une place donnée.
  *
- * L'échelle est choisie d'abord, entière, comme le plus grand facteur que les deux
- * dimensions minimales peuvent payer. Les dimensions remplissent ensuite tout ce qui
- * reste : c'est ce qui fait la différence entre un jeu qui occupe l'écran et un jeu qui
- * flotte au milieu de bandes noires. Fonction pure, donc éprouvable sans navigateur.
+ * L'échelle est choisie d'abord, comme le plus grand facteur que les deux dimensions
+ * minimales peuvent payer. Les dimensions remplissent ensuite tout ce qui reste : c'est
+ * ce qui fait la différence entre un jeu qui occupe l'écran et un jeu qui flotte au
+ * milieu de bandes noires. Fonction pure, donc éprouvable sans navigateur.
  */
-export function cadrer(largeurDispo: number, hauteurDispo: number): Cadrage {
+export function cadrer(largeurDispo: number, hauteurDispo: number, densite = 1): Cadrage {
   const brut = Math.min(largeurDispo / LARGEUR_MIN, hauteurDispo / HAUTEUR_MIN);
-  const scale = brut >= 1 ? Math.floor(brut) : brut;
+
+  // Sur un écran à forte densité — tout téléphone — on renonce à l'échelle entière.
+  //
+  // L'arrondi vers le bas y coûtait cher : 390 pixels de large permettent un facteur
+  // 1,22, ramené à 1, et remplir l'écran revenait alors à montrer deux fois plus de
+  // monde en tout petit — 24×28 tuiles pour un jeu dessiné pour 20×13, des caractères
+  // de moins de deux millimètres. À trois pixels physiques par pixel CSS, l'irrégularité
+  // d'un facteur fractionnaire ne se voit pas ; la perte de lisibilité, elle, se voyait.
+  const scale = densite >= 2 || brut < 1 ? brut : Math.floor(brut);
 
   // Pas d'arrondi à la dimension paire : il coûtait jusqu'à un facteur d'échelle de
   // marge résiduelle, pour rien — le peintre arrondit déjà chaque coordonnée, et un
@@ -110,7 +119,7 @@ export function createViewport(host: HTMLElement): Viewport {
     const hauteurDispo = contenu?.hauteur ?? host.clientHeight ?? window.innerHeight;
     if (largeurDispo <= 0 || hauteurDispo <= 0) return;
 
-    const cadrage = cadrer(largeurDispo, hauteurDispo);
+    const cadrage = cadrer(largeurDispo, hauteurDispo, window.devicePixelRatio || 1);
     scale = cadrage.scale;
     VIRTUAL_WIDTH = cadrage.largeur;
     VIRTUAL_HEIGHT = cadrage.hauteur;

@@ -44,7 +44,6 @@ import { lireTuile } from '../src/world/region.ts';
 import { badgeDe, creerMonde, toutesLesArenesVaincues } from '../src/world/worldgen.ts';
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH, cadrer } from '../src/core/viewport.ts';
 import { PAGES_AIDE, SceneAide } from '../src/scenes/aide.ts';
-import { SceneParametres } from '../src/scenes/parametres.ts';
 import { SceneCarte } from '../src/scenes/carte.ts';
 import { SceneFin } from '../src/scenes/fin.ts';
 import { SceneEncyclopedie } from '../src/scenes/encyclopedie.ts';
@@ -457,7 +456,7 @@ describe('aucun texte ne sort du cadre', () => {
     }
   });
 
-  it('tient dans la largeur sur les réglages et la carte', async () => {
+  it('tient dans la largeur sur le menu de pause et la carte', async () => {
     for (const langue of LANGUES) {
       const banc = creerBanc(langue);
       accueillirCreature(
@@ -469,7 +468,9 @@ describe('aucun texte ne sort du cadre', () => {
           origine: 'brume-3f7a',
         }),
       );
-      banc.jeu.pousser(new SceneParametres());
+      // Le menu porte désormais les réglages à son propre niveau : ses entrées y sont
+      // plus nombreuses, donc plus susceptibles de déborder.
+      banc.jeu.pousser(new SceneMenu());
       banc.trame();
       banc.jeu.retirer();
       banc.jeu.pousser(new SceneCarte());
@@ -480,39 +481,35 @@ describe('aucun texte ne sort du cadre', () => {
 });
 
 describe('réglages', () => {
-  it('change la langue et la conserve', async () => {
+  /**
+   * Les réglages n'ont plus d'écran : leurs entrées vivent au même niveau que le reste
+   * du menu. Un menu dans un menu pour quatre entrées n'avait pas lieu d'être.
+   */
+  it('change la langue depuis le menu, sans écran intermédiaire', async () => {
     const banc = creerBanc('fr');
-    banc.jeu.pousser(new SceneParametres());
-    expect(banc.jeu.langue).toBe('fr');
-    await banc.agir('valider', 2);
+    banc.jeu.pousser(new SceneMenu());
+    // Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde, Langue.
+    for (let i = 0; i < 6; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
     expect(banc.jeu.langue).toBe('en');
-    await banc.agir('valider', 2);
+    expect(banc.jeu.sommet?.nom, 'rien ne s’est empilé').toBe('menu');
+    await banc.agir('valider', 1);
     expect(banc.jeu.langue).toBe('fr');
   });
 
-  it('ouvre « comment jouer » puis revient aux réglages', async () => {
+  it('ouvre « comment jouer » depuis le menu', async () => {
     const banc = creerBanc();
-    banc.jeu.pousser(new SceneParametres());
-    // Sans équipe, les entrées sont : langue, importer, comment jouer, retour.
-    await banc.agir('sud', 2);
-    await banc.agir('sud', 2);
-    await banc.agir('valider', 2);
+    banc.jeu.pousser(new SceneMenu());
+    // …, Langue, Encyclopédie, Comment jouer.
+    for (let i = 0; i < 8; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
     expect(banc.jeu.sommet?.nom).toBe('aide');
-    await banc.agir('annuler', 2);
-    expect(banc.jeu.sommet?.nom).toBe('parametres');
+    await banc.agir('annuler', 1);
+    expect(banc.jeu.sommet?.nom).toBe('menu');
   });
 
-  it('n’offre l’export qu’avec une partie en cours', () => {
+  it('garde les entrées de sauvegarde groupées dans leur onglet', () => {
     const banc = creerBanc();
-    banc.jeu.pousser(new SceneParametres());
-
-    // Écran-titre : l'état est une partie neuve sans créature, rien à exporter.
-    textesDessines = [];
-    banc.trame();
-    expect(textesDessines).not.toContain(banc.jeu.t('sauvegarde.exporter'));
-    // L'import, lui, reste offert : c'est justement de là qu'on en a besoin.
-    expect(textesDessines).toContain(banc.jeu.t('sauvegarde.importer'));
-
     accueillirCreature(
       banc.jeu.state,
       creerCreature(makeRng(51), {
@@ -522,9 +519,18 @@ describe('réglages', () => {
         origine: 'brume-3f7a',
       }),
     );
+    banc.jeu.pousser(new SceneMenu());
+    // Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde.
+    for (let i = 0; i < 5; i++) {
+      banc.entrees.presser('sud');
+      banc.trame();
+    }
+    banc.entrees.presser('valider');
+    banc.trame();
     textesDessines = [];
     banc.trame();
     expect(textesDessines).toContain(banc.jeu.t('sauvegarde.exporter'));
+    expect(textesDessines).toContain(banc.jeu.t('sauvegarde.maintenant'));
   });
 
   it('exporte un document relisible depuis n’importe quel écran', () => {
@@ -544,21 +550,20 @@ describe('réglages', () => {
   });
 
   /**
-   * L'engrenage flottant a disparu : il doublait l'entrée du menu de pause. L'écran-titre
-   * a donc besoin de son propre accès, sans quoi la langue devient inatteignable avant
+   * L'engrenage flottant a disparu, puis l'écran de réglages avec lui. L'écran-titre a
+   * donc besoin de ses propres entrées, sans quoi la langue devient inatteignable avant
    * d'avoir commencé une partie — précisément quand on en a le plus besoin.
    */
-  it('est atteignable depuis l’écran-titre', async () => {
+  it('se change depuis l’écran-titre, sans écran intermédiaire', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneTitre('brume-3f7a'));
+    expect(banc.jeu.langue).toBe('fr');
 
-    // Sans sauvegarde : Nouvelle partie, Importer, Comment jouer, Paramètres.
-    for (let i = 0; i < 3; i++) await banc.agir('sud', 1);
+    // Sans sauvegarde : Nouvelle partie, Importer, Langue, Encyclopédie, Comment jouer.
+    for (let i = 0; i < 2; i++) await banc.agir('sud', 1);
     await banc.agir('valider', 1);
-    expect(banc.jeu.sommet?.nom).toBe('parametres');
-
-    await banc.agir('annuler', 1);
-    expect(banc.jeu.sommet?.nom).toBe('titre');
+    expect(banc.jeu.langue, 'la langue bascule sur place').toBe('en');
+    expect(banc.jeu.sommet?.nom, 'et rien ne s’est empilé').toBe('titre');
   });
 });
 
@@ -879,15 +884,15 @@ describe('reprise d’un combat interrompu', () => {
   });
 
   /**
-   * L'engrenage s'ouvre par-dessus le combat : le sommet de la pile n'est plus lui. Sans
-   * consulter toute la pile, un export lancé depuis les réglages emporterait un
-   * instantané périmé.
+   * Un écran consultable s'ouvre par-dessus le combat : le sommet de la pile n'est plus
+   * lui. Sans consulter toute la pile, un export lancé de là emporterait un instantané
+   * périmé.
    */
-  it('emporte le combat même quand les réglages sont ouverts par-dessus', () => {
+  it('emporte le combat même quand un écran est ouvert par-dessus', () => {
     const banc = bancAvecCombat();
     banc.trame();
-    banc.jeu.pousser(new SceneParametres());
-    expect(banc.jeu.sommet?.nom).toBe('parametres');
+    banc.jeu.pousser(new SceneEncyclopedie());
+    expect(banc.jeu.sommet?.nom).toBe('encyclopedie');
 
     const document = banc.jeu.documentDePartie();
     expect(document?.combat?.adversaires[0]!.speciesId).toBe('plumelle');
@@ -1150,10 +1155,19 @@ describe('encyclopédie', () => {
     );
   });
 
-  it('s’ouvre depuis les réglages', async () => {
+  it('s’ouvre depuis le menu de pause, au même niveau que le reste', async () => {
     const banc = creerBanc();
-    banc.jeu.pousser(new SceneParametres());
-    // Sans partie : Langue, Importer, Comment jouer, Encyclopédie, Retour.
+    banc.jeu.pousser(new SceneMenu());
+    // Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde, Langue, Encyclopédie.
+    for (let i = 0; i < 7; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+    expect(banc.jeu.sommet?.nom).toBe('encyclopedie');
+  });
+
+  it('s’ouvre aussi depuis l’écran-titre', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneTitre('brume-3f7a'));
+    // Nouvelle partie, Importer, Langue, Encyclopédie.
     for (let i = 0; i < 3; i++) await banc.agir('sud', 1);
     await banc.agir('valider', 1);
     expect(banc.jeu.sommet?.nom).toBe('encyclopedie');
