@@ -75,8 +75,13 @@ export type Validation<T> =
   | { readonly ok: false; readonly raison: MotifValidation };
 
 class ErreurValidation extends Error {
-  constructor(readonly motif: MotifValidation) {
+  // Champ déclaré puis affecté, et non propriété de paramètre : Node exécute le
+  // TypeScript du dépôt en mode « strip-only », qui refuse `constructor(readonly x)`.
+  readonly motif: MotifValidation;
+
+  constructor(motif: MotifValidation) {
     super(motif.cle);
+    this.motif = motif;
   }
 }
 
