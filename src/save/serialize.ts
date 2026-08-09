@@ -265,6 +265,23 @@ export function chargerDepuisTexte(texteBrut: string): Validation<PartieChargee>
   };
 }
 
+/**
+ * Le champ `format` du document, sans rien valider d'autre.
+ *
+ * Il sépare « ce n'est pas le bon type de fichier » de « ce fichier est abîmé ». Les deux
+ * échouent à la validation, mais seul le premier a une réponse utile à donner au joueur :
+ * l'entrée de menu par laquelle il aurait fallu passer. Renvoie `null` dès que le texte
+ * ne se laisse pas lire jusque-là.
+ */
+export function formatDuDocument(texteBrut: string): string | null {
+  const analyse = lireJson(texteBrut);
+  if (!analyse.ok) return null;
+  const brut = analyse.valeur;
+  if (typeof brut !== 'object' || brut === null) return null;
+  const format = (brut as Record<string, unknown>).format;
+  return typeof format === 'string' ? format : null;
+}
+
 export function chargerCreatureDepuisTexte(texteBrut: string): Validation<CreatureFile> {
   const analyse = lireJson(texteBrut);
   if (!analyse.ok) return analyse;

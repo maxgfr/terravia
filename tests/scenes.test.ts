@@ -31,7 +31,7 @@ import { makeRng } from '../src/core/rng.ts';
 import { Peintre } from '../src/ui/draw.ts';
 import { SceneTitre } from '../src/scenes/titre.ts';
 import { SceneOverworld } from '../src/scenes/overworld.ts';
-import { ENTREES_RACINE, SceneMenu } from '../src/scenes/menu.ts';
+import { ENTREES_RACINE, ENTREES_SAUVEGARDE, SceneMenu } from '../src/scenes/menu.ts';
 import { SceneCombat } from '../src/scenes/combat.ts';
 import { CHARACTER_IDS } from '../src/world/characterIds.ts';
 import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../src/data/types.ts';
@@ -50,8 +50,12 @@ import { SceneFin } from '../src/scenes/fin.ts';
 import { SceneEncyclopedie } from '../src/scenes/encyclopedie.ts';
 import { MOVE_IDS, MOVES } from '../src/data/moves.ts';
 import { LANGUES } from '../src/i18n/index.ts';
-import { entrerDansLaPartie } from '../src/scenes/partie.ts';
-import { chargerDepuisTexte, exporterPartie } from '../src/save/serialize.ts';
+import {
+  entrerDansLaPartie,
+  importerCreatureSeule,
+  importerPartieSeule,
+} from '../src/scenes/partie.ts';
+import { chargerDepuisTexte, exporterCreature, exporterPartie } from '../src/save/serialize.ts';
 import { lireSauvegardeLocale } from '../src/save/storage.ts';
 import { pvMax } from '../src/game/creature.ts';
 
@@ -562,8 +566,11 @@ describe('réglages', () => {
     banc.trame();
     textesDessines = [];
     banc.trame();
-    expect(textesDessines).toContain(banc.jeu.t('sauvegarde.exporter'));
-    expect(textesDessines).toContain(banc.jeu.t('sauvegarde.maintenant'));
+    // Chaque entrée, pas seulement deux : c'est ici qu'on voit qu'un export a perdu son
+    // import — le symptôme d'origine, « Exporter une créature » sans contrepartie.
+    for (const cle of ENTREES_SAUVEGARDE) {
+      expect(textesDessines, `entrée ${cle}`).toContain(banc.jeu.t(cle));
+    }
   });
 
   it('exporte un document relisible depuis n’importe quel écran', () => {
@@ -597,6 +604,182 @@ describe('réglages', () => {
     await banc.agir('valider', 1);
     expect(banc.jeu.langue, 'la langue bascule sur place').toBe('en');
     expect(banc.jeu.sommet?.nom, 'et rien ne s’est empilé').toBe('titre');
+  });
+});
+
+/**
+ * Échanger une créature entre deux parties.
+ *
+ * La moitié « import » existait depuis toujours — la porte permissive du glisser-déposer
+ * l'acceptait — mais le menu n'en disait rien : on y lisait « Exporter une créature »
+ * sans contrepartie, et une créature reçue d'un ami n'avait pas d'entrée par où passer.
+ */
+describe('échange de créatures', () => {
+  const HORODATAGE = '2026-08-09T10:00:00.000Z';
+
+  /**
+   * Vide la boîte de dialogue et rend ce qu'elle a dit, message par message.
+   *
+   * Deux pressions par tour : la première révèle le texte d'un coup, la seconde passe au
+   * suivant. On lit le message entier plutôt que ce qui est dessiné, qui arrive découpé
+   * en lignes — une assertion sur une phrase complète y serait fausse pour une raison
+   * sans rapport avec ce qu'on éprouve.
+   */
+  function repliques(banc: Banc): string[] {
+    const boite = banc.jeu.dialogue as unknown as { courant: string | null };
+    const dites: string[] = [];
+    for (let tour = 0; tour < 20 && banc.jeu.dialogue.actif; tour++) {
+      if (boite.courant) dites.push(boite.courant);
+      for (let pression = 0; pression < 2; pression++) {
+        banc.entrees.presser('valider');
+        banc.jeu.dialogue.mettreAJour(1 / 60, banc.entrees);
+        banc.entrees.finDeTrame();
+      }
+    }
+    return dites;
+  }
+
+  function peupler(banc: Banc, nombre: number): void {
+    for (let index = 0; index < nombre; index++) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(200 + index), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: SPECIES_IDS[index % SPECIES_IDS.length]!,
+          niveau: 10,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+  }
+
+  /** Une créature venue d'ailleurs, sous la forme où elle circule entre deux joueurs. */
+  function fichierCreature(): string {
+    return JSON.stringify(
+      exporterCreature(
+        creerCreature(makeRng(300), {
+          uid: 'venue-dailleurs',
+          speciesId: 'folianz',
+          niveau: 9,
+          origine: 'autre-3f7a',
+        }),
+        HORODATAGE,
+      ),
+    );
+  }
+
+  /** Descend jusqu'à une entrée de l'onglet Sauvegarde, puis la valide. */
+  async function ouvrirEntreeSauvegarde(
+    banc: Banc,
+    cle: (typeof ENTREES_SAUVEGARDE)[number],
+  ): Promise<void> {
+    await ouvrirEntreeRacine(banc, 'menu.sauvegarde');
+    const cible = ENTREES_SAUVEGARDE.indexOf(cle);
+    expect(cible, `entrée ${cle} absente de l’onglet`).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < cible; i++) await banc.agir('sud', 1);
+    await banc.agir('valider', 1);
+  }
+
+  it('fait entrer la créature dans l’équipe tant qu’il y reste une place', () => {
+    const banc = creerBanc();
+    peupler(banc, 2);
+    importerCreatureSeule(banc.jeu, fichierCreature());
+
+    expect(banc.jeu.state.equipe).toHaveLength(3);
+    expect(repliques(banc)).toContain(
+      banc.jeu.t('sauvegarde.creatureImportee', { nom: banc.jeu.nomEspece('folianz') }),
+    );
+  });
+
+  /**
+   * La réplique annonçait la réserve dans les deux cas. Le joueur qui avait de la place
+   * allait donc chercher sa créature là où elle n'était pas.
+   */
+  it('la range en réserve quand l’équipe est pleine, et le dit', () => {
+    const banc = creerBanc();
+    peupler(banc, 6);
+    importerCreatureSeule(banc.jeu, fichierCreature());
+
+    expect(banc.jeu.state.equipe).toHaveLength(6);
+    expect(banc.jeu.state.reserve).toHaveLength(1);
+    expect(repliques(banc)).toContain(
+      banc.jeu.t('sauvegarde.creatureEnReserve', { nom: banc.jeu.nomEspece('folianz') }),
+    );
+  });
+
+  /**
+   * Deux entrées nommées doivent tenir parole. Sur le mauvais type de document, elles
+   * renvoient vers l'autre plutôt que de relayer « ce fichier n'est pas un document
+   * terravia-creature » — une phrase vraie que rien dans le jeu n'apprend à lire.
+   */
+  it('renvoie une sauvegarde de partie vers l’entrée des parties', () => {
+    const banc = creerBanc();
+    peupler(banc, 1);
+    importerCreatureSeule(banc.jeu, JSON.stringify(banc.jeu.documentDePartie()));
+
+    expect(banc.jeu.state.equipe, 'rien ne doit être accueilli').toHaveLength(1);
+    expect(repliques(banc)).toContain(
+      banc.jeu.t('sauvegarde.mauvaisFichier', { entree: banc.jeu.t('sauvegarde.importer') }),
+    );
+  });
+
+  it('renvoie une créature seule vers l’entrée des créatures', () => {
+    const banc = creerBanc();
+    peupler(banc, 1);
+    importerPartieSeule(banc.jeu, fichierCreature());
+
+    expect(banc.jeu.state.equipe, 'aucune partie ne doit être chargée').toHaveLength(1);
+    expect(repliques(banc)).toContain(
+      banc.jeu.t('sauvegarde.mauvaisFichier', { entree: banc.jeu.t('sauvegarde.importerCreature') }),
+    );
+  });
+
+  /**
+   * À l'écran-titre, le starter n'est pas choisi : il n'y a pas d'équipe où ranger quoi
+   * que ce soit. La créature y entrait quand même, et la sauvegarde automatique écrivait
+   * derrière — « Continuer » rouvrait une partie que personne n'avait commencée.
+   */
+  it('refuse d’accueillir une créature avant que la partie ait commencé', () => {
+    const banc = creerBanc();
+    expect(banc.jeu.state.equipe, 'aucun starter choisi').toHaveLength(0);
+    importerCreatureSeule(banc.jeu, fichierCreature());
+
+    expect(banc.jeu.state.equipe).toHaveLength(0);
+    expect(banc.jeu.state.reserve).toHaveLength(0);
+    expect(repliques(banc)).toContain(banc.jeu.t('sauvegarde.pasDePartie'));
+  });
+
+  it('garde une raison lisible pour un fichier réellement abîmé', () => {
+    const banc = creerBanc();
+    peupler(banc, 1);
+    importerCreatureSeule(banc.jeu, '{ ceci ne se lit pas');
+
+    const dites = repliques(banc).join(' ');
+    expect(dites).toContain(banc.jeu.t('sauvegarde.invalide', { raison: '' }).trim());
+    expect(dites, 'et surtout pas un renvoi vers l’autre entrée').not.toContain(
+      banc.jeu.t('sauvegarde.importer'),
+    );
+  });
+
+  /**
+   * L'export partait sur la première créature de l'équipe, sans le demander : c'était la
+   * seule qu'on pouvait échanger, et rien ne l'annonçait.
+   */
+  it('demande quelle créature exporter, et les propose toutes', async () => {
+    const banc = creerBanc();
+    peupler(banc, 3);
+    banc.jeu.pousser(new SceneMenu());
+    await ouvrirEntreeSauvegarde(banc, 'sauvegarde.exporterCreature');
+
+    // Une pression révèle l'intitulé d'un coup ; les options ne se dessinent qu'après.
+    await banc.agir('valider', 2);
+    textesDessines = [];
+    banc.trame();
+
+    expect(textesDessines).toContain(banc.jeu.t('sauvegarde.exporterQui'));
+    for (const membre of banc.jeu.state.equipe) {
+      expect(textesDessines, banc.jeu.nomCreature(membre)).toContain(banc.jeu.nomCreature(membre));
+    }
   });
 });
 
@@ -803,6 +986,71 @@ describe('combat', () => {
     expect(textesDessines.some((texte) => texte.startsWith(attendu))).toBe(true);
     // Et le repère de position dit où l'on se trouve dans la liste.
     expect(textesDessines).toContain('6/6');
+  });
+
+  /**
+   * Deux créatures de la même espèce, aucun surnom : les répliques ne portaient que le
+   * nom d'espèce, et « Mulotin utilise Charge ! » ne disait pas lequel des deux venait
+   * de frapper. Le cas n'a rien d'exotique — les hautes herbes rendent souvent l'espèce
+   * qu'on y a capturée.
+   */
+  it('distingue les deux camps quand les créatures portent le même nom', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(130), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'menhirok',
+        niveau: 30,
+        origine: 'brume-3f7a',
+      }),
+    );
+    // Une attaque faible de part et d'autre : les deux survivent au tour, et chacune
+    // prend donc la parole.
+    banc.jeu.state.equipe[0]!.moves = [{ id: 'ruade', pp: 20 }];
+    const sauvage = creerCreature(makeRng(131), {
+      uid: 'sauvage-jumeau',
+      speciesId: 'menhirok',
+      niveau: 30,
+      origine: 'brume-3f7a',
+    });
+    sauvage.moves = [{ id: 'ruade', pp: 20 }];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(new SceneCombat({ genre: 'sauvage', adversaires: [sauvage] }));
+
+    viderIntro(banc);
+    // Menu d'actions → liste d'attaques → première attaque.
+    for (let i = 0; i < 2; i++) {
+      banc.entrees.presser('valider');
+      banc.trame();
+    }
+
+    const boite = banc.jeu.dialogue as unknown as { courant: string | null };
+    const dites = new Set<string>();
+    for (let i = 0; i < 400 && banc.jeu.sommet?.nom === 'combat'; i++) {
+      if (boite.courant) dites.add(boite.courant);
+      banc.entrees.presser('valider');
+      banc.trame();
+    }
+
+    // Le début d'une réplique d'attaque, reconstruit depuis le modèle traduit : le test
+    // reste juste dans les deux langues, dont les gabarits n'ont pas le même ordre.
+    const modele = banc.jeu.t('combat.utilise', { nom: '\u0001', attaque: '\u0002' });
+    const debut = (nom: string): string => modele.replace('\u0001', nom).split('\u0002')[0]!;
+    const nom = banc.jeu.nomCreature(banc.jeu.state.equipe[0]!);
+    const nomAdverse = banc.jeu.t('combat.adverse', { nom });
+    expect(nomAdverse, 'les deux camps doivent porter des libellés différents').not.toBe(nom);
+
+    const lignes = [...dites];
+    expect(
+      lignes.filter((texte) => texte.startsWith(debut(nom))),
+      'notre attaque doit être annoncée',
+    ).not.toHaveLength(0);
+    expect(
+      lignes.filter((texte) => texte.startsWith(debut(nomAdverse))),
+      'celle de l’adversaire aussi, et sans se confondre avec la nôtre',
+    ).not.toHaveLength(0);
   });
 });
 
@@ -1076,7 +1324,12 @@ describe('animations de combat', () => {
     // que deviné : le test reste juste dans les deux langues.
     const modele = banc.jeu.t('combat.utilise', { nom: '\u0001', attaque: '\u0002' });
     const debutAttaque = (nom: string): string => modele.replace('\u0001', nom).split('\u0002')[0]!;
-    const nomAdverse = banc.jeu.nomCreature(banc.jeu.state.combat!.adversaires[0]!);
+    // Les répliques nomment le camp adverse comme tel : le test reconstruit le même
+    // libellé, sans quoi il cesserait de reconnaître l'attaque de l'adversaire — et ne
+    // vérifierait plus qu'une moitié du tour sans le dire.
+    const nomAdverse = banc.jeu.t('combat.adverse', {
+      nom: banc.jeu.nomCreature(banc.jeu.state.combat!.adversaires[0]!),
+    });
 
     let attaquant: string | null = null;
     let secousse = scene.coteFrappe;

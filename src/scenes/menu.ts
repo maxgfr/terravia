@@ -39,7 +39,7 @@ import { SceneCarte } from './carte.ts';
 import { SceneAide } from './aide.ts';
 import { SceneEncyclopedie } from './encyclopedie.ts';
 import { SceneTitre } from './titre.ts';
-import { traiterImport } from './partie.ts';
+import { importerCreatureSeule, importerPartieSeule } from './partie.ts';
 
 /** Lignes de réserve affichées d'un coup dans la colonne de droite, selon la place. */
 function lignesReserve(): number {
@@ -105,11 +105,20 @@ export const ENTREES_RACINE = [
   'parametres.langue',
   'menu.fermer',
 ] as const;
-const ENTREES_SAUVEGARDE = [
+/**
+ * Chaque export en face de son import.
+ *
+ * « Exporter une créature » n'avait pas de contrepartie : l'import de créature existait
+ * — la porte permissive l'accepte depuis toujours — mais rien dans le menu ne le disait,
+ * et un joueur qui reçoit une créature d'un ami n'a pas à deviner qu'elle entre par
+ * l'entrée nommée « partie ».
+ */
+export const ENTREES_SAUVEGARDE = [
   'sauvegarde.maintenant',
   'sauvegarde.exporter',
   'sauvegarde.importer',
   'sauvegarde.exporterCreature',
+  'sauvegarde.importerCreature',
   'menu.retour',
 ] as const;
 
@@ -494,27 +503,57 @@ export class SceneMenu implements Scene {
         break;
       }
       case 'sauvegarde.importer':
-        void this.importer(jeu);
+        void this.choisirEtImporter(jeu, importerPartieSeule);
         break;
-      case 'sauvegarde.exporterCreature': {
-        const creature = jeu.state.equipe[0];
-        if (!creature) break;
-        telecharger(
-          exporterCreature(creature, new Date().toISOString()),
-          `terravia-${creature.speciesId}-${creature.uid}.json`,
-        );
-        jeu.dialogue.dire(jeu.t('sauvegarde.exportee'));
+      case 'sauvegarde.exporterCreature':
+        this.exporterUneCreature(jeu);
         break;
-      }
+      case 'sauvegarde.importerCreature':
+        void this.choisirEtImporter(jeu, importerCreatureSeule);
+        break;
       default:
         this.aller('racine');
     }
   }
 
-  private async importer(jeu: Jeu): Promise<void> {
+  /** Ouvre le sélecteur de fichiers, et confie ce qu'on en tire à la porte annoncée. */
+  private async choisirEtImporter(
+    jeu: Jeu,
+    porte: (jeu: Jeu, contenu: string) => void,
+  ): Promise<void> {
     const contenu = await choisirFichier();
     if (contenu === null) return;
-    traiterImport(jeu, contenu);
+    porte(jeu, contenu);
+  }
+
+  /**
+   * Exporter une créature, mais laquelle ?
+   *
+   * L'export partait sur la première de l'équipe sans le demander : c'était la seule
+   * qu'on pouvait échanger, et rien ne l'annonçait. La question se pose donc, comme
+   * pour la Pierre d'Éveil.
+   *
+   * Sur l'équipe seule : la boîte de dialogue grandit avec ses options et ne défile
+   * pas — six créatures et « Retour » tiennent dans la hauteur minimale, une réserve
+   * que rien ne borne n'y tiendrait pas. Elle se traverse par l'écran Réserve.
+   */
+  private exporterUneCreature(jeu: Jeu): void {
+    const equipe = jeu.state.equipe;
+    if (equipe.length === 0) return;
+    void jeu.dialogue
+      .demander(jeu.t('sauvegarde.exporterQui'), [
+        ...equipe.map((membre) => jeu.nomCreature(membre)),
+        jeu.t('menu.retour'),
+      ])
+      .then((choix) => {
+        const creature = equipe[choix];
+        if (!creature) return;
+        telecharger(
+          exporterCreature(creature, new Date().toISOString()),
+          `terravia-${creature.speciesId}-${creature.uid}.json`,
+        );
+        jeu.dialogue.dire(jeu.t('sauvegarde.exportee'));
+      });
   }
 
   // ── Rendu ──────────────────────────────────────────────────────────────────

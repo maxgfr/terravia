@@ -8,7 +8,14 @@
 
 import type { Jeu } from '../game/jeu.ts';
 import { accueillirCreature, prochainIdentifiant } from '../game/state.ts';
-import { chargerCreatureDepuisTexte, chargerDepuisTexte, importerCreature } from '../save/serialize.ts';
+import { FORMAT_CREATURE, FORMAT_PARTIE, type CreatureFile } from '../save/format.ts';
+import {
+  chargerCreatureDepuisTexte,
+  chargerDepuisTexte,
+  formatDuDocument,
+  importerCreature,
+  type PartieChargee,
+} from '../save/serialize.ts';
 import type { Dresseur } from '../world/entities.ts';
 import { SceneCombat } from './combat.ts';
 import { SceneOverworld } from './overworld.ts';
@@ -51,26 +58,88 @@ export function entrerDansLaPartie(jeu: Jeu): void {
 }
 
 /**
- * Traite un fichier déposé ou choisi : partie complète ou créature seule.
- * Un import de partie passe toujours par une confirmation — on n'écrase jamais en silence.
+ * Trois portes pour un même fichier, parce que l'appelant n'en sait pas toujours autant.
+ *
+ * Le menu de pause nomme ce qu'il attend — « Importer une partie », « Importer une
+ * créature » — et les deux portes strictes tiennent parole : sur le mauvais type de
+ * document, elles renvoient vers l'autre entrée au lieu de laisser filtrer un message
+ * de validation que le joueur n'a pas de quoi interpréter.
+ *
+ * `traiterImport` reste la porte permissive, pour le glisser-déposer et l'écran-titre,
+ * où rien n'a été choisi : elle lit le format annoncé et aiguille.
  */
 export function traiterImport(jeu: Jeu, contenu: string): void {
-  const creature = chargerCreatureDepuisTexte(contenu);
-  if (creature.ok) {
-    const importee = importerCreature(creature.valeur, prochainIdentifiant(jeu.state));
-    accueillirCreature(jeu.state, importee);
-    jeu.sauvegarderLocalement();
-    jeu.dialogue.dire(jeu.t('sauvegarde.creatureImportee', { nom: jeu.nomEspece(importee.speciesId) }));
+  if (formatDuDocument(contenu) === FORMAT_CREATURE) {
+    importerCreatureSeule(jeu, contenu);
     return;
   }
+  // Tout le reste part vers la partie, y compris l'illisible : c'est ce chemin qui
+  // rapporte la raison du refus.
+  importerPartieSeule(jeu, contenu);
+}
 
+/** N'accepte qu'un document de créature, et seulement dans une partie commencée. */
+export function importerCreatureSeule(jeu: Jeu, contenu: string): void {
+  // Une équipe vide, c'est un starter pas encore choisi — on est à l'écran-titre. La
+  // créature y était accueillie quand même, puis écrite sur le disque : « Continuer »
+  // rouvrait alors une partie que personne n'avait jamais commencée.
+  if (jeu.state.equipe.length === 0) {
+    jeu.dialogue.dire(jeu.t('sauvegarde.pasDePartie'));
+    return;
+  }
+  if (formatDuDocument(contenu) === FORMAT_PARTIE) {
+    jeu.dialogue.dire(
+      jeu.t('sauvegarde.mauvaisFichier', { entree: jeu.t('sauvegarde.importer') }),
+    );
+    return;
+  }
+  const creature = chargerCreatureDepuisTexte(contenu);
+  if (!creature.ok) {
+    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: creature.raison }));
+    return;
+  }
+  accueillirDepuisFichier(jeu, creature.valeur);
+}
+
+/**
+ * N'accepte qu'une sauvegarde de partie.
+ * Elle passe toujours par une confirmation — on n'écrase jamais en silence.
+ */
+export function importerPartieSeule(jeu: Jeu, contenu: string): void {
+  if (formatDuDocument(contenu) === FORMAT_CREATURE) {
+    jeu.dialogue.dire(
+      jeu.t('sauvegarde.mauvaisFichier', { entree: jeu.t('sauvegarde.importerCreature') }),
+    );
+    return;
+  }
   const partie = chargerDepuisTexte(contenu);
   if (!partie.ok) {
     jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: partie.raison }));
     return;
   }
+  confirmerPuisCharger(jeu, partie.valeur);
+}
 
-  const resume = partie.valeur.resume;
+/**
+ * Fait entrer une créature venue d'un fichier, et annonce où elle atterrit.
+ *
+ * `accueillirCreature` la range dans l'équipe s'il reste une place, en réserve sinon, et
+ * dit laquelle des deux. La réplique le répète — elle annonçait la réserve dans les deux
+ * cas, et le joueur allait chercher là où sa créature n'était pas.
+ */
+function accueillirDepuisFichier(jeu: Jeu, document: CreatureFile): void {
+  const importee = importerCreature(document, prochainIdentifiant(jeu.state));
+  const place = accueillirCreature(jeu.state, importee);
+  jeu.sauvegarderLocalement();
+  jeu.dialogue.dire(
+    jeu.t(place === 'equipe' ? 'sauvegarde.creatureImportee' : 'sauvegarde.creatureEnReserve', {
+      nom: jeu.nomEspece(importee.speciesId),
+    }),
+  );
+}
+
+function confirmerPuisCharger(jeu: Jeu, chargee: PartieChargee): void {
+  const resume = chargee.resume;
   jeu.dialogue.dire(
     jeu.t('sauvegarde.resume', {
       seed: resume.seed,
@@ -79,7 +148,7 @@ export function traiterImport(jeu: Jeu, contenu: string): void {
       temps: `${Math.floor(resume.joueur.tempsJeuMs / 60000)} min`,
     }),
   );
-  for (const avertissement of partie.valeur.avertissements) {
+  for (const avertissement of chargee.avertissements) {
     jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: avertissement }));
   }
 
@@ -87,7 +156,7 @@ export function traiterImport(jeu: Jeu, contenu: string): void {
     .demander(jeu.t('sauvegarde.confirmerImport'), [jeu.t('depart.oui'), jeu.t('depart.non')])
     .then((choix) => {
       if (choix !== 0) return;
-      jeu.chargerPartie(partie.valeur.state);
+      jeu.chargerPartie(chargee.state);
       jeu.sauvegarderLocalement();
       // On repart du monde : la scène courante décrivait l'ancienne partie. `remplacer`
       // vide toute la pile, y compris l'écran d'où l'import a été lancé — inutile donc

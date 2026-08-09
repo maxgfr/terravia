@@ -94,7 +94,10 @@ frostbolt`) and **never overwrites the game in progress**: a confirmation screen
 summarises the save first. A migration registry is in place from version 1, so the format
 can evolve without breaking existing games.
 
-You can also export a single creature and import it into another game.
+You can also export a single creature — you pick which one — and import it into another
+game. The save tab pairs each export with its import, and the two creature entries only
+accept creature files: hand one a game save and it points you at the entry that takes it.
+Dropping a file on the page stays permissive and sorts the two out on its own.
 
 > **On trading:** with no server, nothing stops someone editing a file to hand themselves
 > a level 100 creature. The checksum detects a corrupted file, not a dishonest one.

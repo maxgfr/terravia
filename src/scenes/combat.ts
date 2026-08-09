@@ -494,9 +494,24 @@ export class SceneCombat implements Scene {
     return null;
   }
 
+  /**
+   * Le nom d'une créature dans une réplique, avec son camp.
+   *
+   * Les répliques ne portaient que le nom d'espèce : deux Mulotin sans surnom donnaient
+   * « Mulotin utilise Charge ! » des deux côtés, et rien ne disait lequel des deux venait
+   * de frapper. Le camp adverse est donc nommé comme tel — toujours, même quand les noms
+   * diffèrent. Une règle sans condition se lit pareil à chaque combat, là où un libellé
+   * qui n'apparaît que sur les doublons demanderait au joueur de remarquer qu'il a changé.
+   *
+   * Le nôtre reste nu : c'est l'asymétrie qui distingue, pas la longueur des deux côtés.
+   */
+  private nomAuCombat(jeu: Jeu, cote: 'joueur' | 'adversaire'): string {
+    if (cote === 'joueur') return jeu.nomCreature(this.creatureJoueur);
+    return jeu.t('combat.adverse', { nom: jeu.nomCreature(this.adversaire) });
+  }
+
   private decrire(jeu: Jeu, evenement: BattleEvent): string | null {
-    const nomDe = (cote: 'joueur' | 'adversaire'): string =>
-      jeu.nomCreature(cote === 'joueur' ? this.creatureJoueur : this.adversaire);
+    const nomDe = (cote: 'joueur' | 'adversaire'): string => this.nomAuCombat(jeu, cote);
 
     switch (evenement.type) {
       case 'message':
