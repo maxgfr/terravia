@@ -33,7 +33,7 @@ import {
   prochainIdentifiant,
   soignerEquipe,
 } from '../game/state.ts';
-import { ITEMS, SHOP_STOCK } from '../data/items.ts';
+import { ITEMS, stockBoutique } from '../data/items.ts';
 import { DIRECTION_VECTORS, type Direction } from '../world/characterIds.ts';
 import { TAUX_RENCONTRE, tirerRencontre } from '../world/encounters.ts';
 import type { Dresseur, Entite } from '../world/entities.ts';
@@ -493,11 +493,14 @@ export class SceneOverworld implements Scene {
     if (equipeHorsCombat(jeu.state)) return;
     if (!jeu.rng.chance(TAUX_RENCONTRE)) return;
 
-    // Le sanctuaire est le seul endroit où les créatures uniques se montrent. C'est ce
-    // qui rend le Terradex complétable : son compteur annonçait jusqu'ici un total que
-    // rien dans le monde ne permettait d'atteindre.
+    // Le sanctuaire est le seul endroit où les créatures uniques se montrent, et le seul
+    // à recueillir les espèces qu'aucun biome tiré n'offrait. C'est ce qui rend le
+    // Terradex complétable : son compteur annonçait jusqu'ici un total que rien dans le
+    // monde ne permettait d'atteindre.
+    const sanctuaire = region.role === 'sanctuaire';
     const rencontre = tirerRencontre(jeu.rng, region.biome, phaseDuJour(jeu.state), region.niveaux, {
-      uniques: region.role === 'sanctuaire',
+      uniques: sanctuaire,
+      complement: sanctuaire ? region.complement : undefined,
     });
     if (!rencontre) return;
 
@@ -649,13 +652,16 @@ export class SceneOverworld implements Scene {
   }
 
   private ouvrirBoutique(jeu: Jeu): void {
-    const libelles = SHOP_STOCK.map(
+    // Le rayon s'étoffe avec les badges : le Prisme Royal et la Pierre d'Éveil n'ont rien
+    // à faire sur l'étal du bourg de départ.
+    const stock = stockBoutique(jeu.state.progression.badges.length);
+    const libelles = stock.map(
       (item) => `${jeu.nomObjet(item)}  ${jeu.t('boutique.pieces', { pieces: ITEMS[item].prix })}`,
     );
     void jeu.dialogue
       .demander(jeu.t('boutique.titre'), [...libelles, jeu.t('boutique.quitter')])
       .then((choix) => {
-        const item = SHOP_STOCK[choix];
+        const item = stock[choix];
         if (!item) return;
         const resultat = acheter(jeu.state, item, 1);
         jeu.dialogue.dire(

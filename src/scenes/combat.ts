@@ -14,6 +14,7 @@ import { effectivenessAgainst, effectivenessTier } from '../data/types.ts';
 import type { CleTexte } from '../i18n/index.ts';
 import { STAT_NAMES, STATUS_NAMES } from '../data/stats.ts';
 import { ITEMS } from '../data/items.ts';
+import { TALENTS, type TalentId } from '../data/talents.ts';
 import { choisirAttaque, choisirRemplacant, type NiveauIA } from '../battle/ai.ts';
 import { creerCombattant } from '../battle/damage.ts';
 import {
@@ -514,8 +515,17 @@ export class SceneCombat implements Scene {
     const nomDe = (cote: 'joueur' | 'adversaire'): string => this.nomAuCombat(jeu, cote);
 
     switch (evenement.type) {
-      case 'message':
-        return jeu.t(evenement.cle as never, evenement.params);
+      case 'message': {
+        // Le moteur nomme le talent par son identifiant — il ne connaît aucune langue.
+        // C'est ici, et seulement ici, qu'il devient un nom lisible.
+        const params = evenement.params;
+        const talent = params?.['talent'];
+        const lisibles =
+          typeof talent === 'string' && talent in TALENTS
+            ? { ...params, talent: TALENTS[talent as TalentId].nom[jeu.langue] }
+            : params;
+        return jeu.t(evenement.cle as never, lisibles);
+      }
       case 'attaque':
         return jeu.t('combat.utilise', {
           nom: nomDe(evenement.acteur),

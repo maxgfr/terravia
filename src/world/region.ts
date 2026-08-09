@@ -42,6 +42,11 @@ export interface RegionPlan {
   readonly suivante: number | null;
   /** Spécialité du champion, pour une arène. C'est elle qui nomme le badge. */
   readonly typeArene?: ElementType;
+  /**
+   * Espèces que le reste du monde n'offrait pas, recueillies ici. Le sanctuaire seul en
+   * porte : c'est ce qui garantit un Terradex complétable quelle que soit la seed.
+   */
+  readonly complement?: readonly SpeciesId[];
 }
 
 export interface Sortie {
@@ -59,6 +64,8 @@ export interface Region {
   readonly niveaux: { readonly min: number; readonly max: number };
   /** Spécialité du champion, reprise du plan pour l'affichage et le badge. */
   readonly typeArene?: ElementType;
+  /** Espèces recueillies ici faute d'exister ailleurs dans le monde. Sanctuaire seul. */
+  readonly complement?: readonly SpeciesId[];
   readonly width: number;
   readonly height: number;
   /** Un index de tuile par case, ligne par ligne. */
@@ -295,6 +302,23 @@ function zonesAtteignables(tiles: Uint8Array, depart: Position): Set<number> {
     ] as const) {
       const nx = x + dx;
       const ny = y + dy;
+
+      // Un rebord ne se franchit que vers le sud, et l'on atterrit une case plus bas —
+      // exactement ce que fait `tenterPas`. Le compter comme une case ordinaire ferait
+      // croire le nord accessible par en bas, et la garantie de connectivité, qui est
+      // tout l'intérêt de ce parcours, mentirait.
+      if (TILES[lire(tiles, nx, ny)].ledge === 'sud') {
+        if (dy <= 0) continue;
+        const arriveeY = ny + 1;
+        if (!marchable(tiles, nx, arriveeY)) continue;
+        if (TILES[lire(tiles, nx, arriveeY)].ledge === 'sud') continue;
+        const cleArrivee = arriveeY * REGION_WIDTH + nx;
+        if (vus.has(cleArrivee)) continue;
+        vus.add(cleArrivee);
+        file.push({ x: nx, y: arriveeY });
+        continue;
+      }
+
       const cle = ny * REGION_WIDTH + nx;
       if (vus.has(cle)) continue;
       if (!marchable(tiles, nx, ny)) continue;
@@ -348,6 +372,9 @@ function caseLibre(contexte: Contexte, vise: Position, rayonMax = 12): Position 
         if (contexte.occupees.has(cle)) continue;
         if (!marchable(contexte.tiles, x, y)) continue;
         if (lire(contexte.tiles, x, y) === 'eau') continue;
+        // Un rebord se saute, il ne s'habite pas : rien ne doit s'y poser, sinon l'objet
+        // ou le personnage se retrouve sur une case où le joueur ne peut pas se tenir.
+        if (TILES[lire(contexte.tiles, x, y)].ledge === 'sud') continue;
         candidats.push({ x, y });
       }
     }
@@ -500,6 +527,10 @@ const genererBourg: Generateur = (contexte, portes) => {
 
   // La carte du monde attend au bourg : c'est elle qui ouvre l'écran de carte.
   poserObjetUnique(contexte, entites, 'carte', { x: centre.x + 3, y: centre.y - 2 }, 90);
+  // La canne aussi. Réservée au village, elle n'arrivait qu'après le premier champion :
+  // tout le premier tiers de la partie se jouait sans que la pêche existe, alors que la
+  // moindre mare du bourg la rend utile.
+  poserObjetUnique(contexte, entites, 'canne', { x: centre.x - 3, y: centre.y - 2 }, 91);
 
   const professeur = caseLibre(contexte, { x: centre.x - 5, y: 13 });
   if (professeur) {
@@ -525,6 +556,22 @@ const genererBourg: Generateur = (contexte, portes) => {
       service: 'soin',
       sprite: 'soigneuse',
       dialogue: 'dialogue.soigneuse',
+    });
+  }
+
+  // Un marchand au bourg. Le plan du monde tient déjà pour acquis que « le bourg vend
+  // déjà » pour justifier de ne pas coller le village à côté — mais aucun étal n'y était
+  // posé. On partait donc avec 800 pièces inutilisables et sans moyen de racheter une
+  // potion avant la première arène.
+  const marchand = caseLibre(contexte, { x: centre.x - 6, y: 17 });
+  if (marchand) {
+    entites.push({
+      kind: 'service',
+      id: entiteId(plan.index, 'service', 1),
+      ...marchand,
+      service: 'boutique',
+      sprite: 'marchand',
+      dialogue: 'dialogue.marchand',
     });
   }
 
@@ -618,13 +665,66 @@ const genererVillage: Generateur = (contexte, portes) => {
   if (portes.nord) creuserCouloir(tiles, rng, centre, portes.nord, 'chemin');
   if (portes.sud) creuserCouloir(tiles, rng, centre, portes.sud, 'chemin');
 
-  // La canne au village : à partir d'ici, toute étendue d'eau devient un lieu de pêche.
-  poserObjetUnique(contexte, entites, 'canne', { x: centre.x - 6, y: centre.y + 3 }, 90);
+  // La canne est désormais donnée au bourg : la poser une seconde fois ici en offrirait
+  // deux. Le village garde sa boutique et sa soigneuse, qui sont sa raison d'être.
 
   return { depart: portes.sud ?? centre, entites };
 };
 
 /** Arène : une enceinte, une allée, le champion au fond. */
+/**
+ * Le champion d'une arène : sa spécialité, son escorte, sa tête d'affiche.
+ *
+ * Extrait du générateur pour que la région de secours puisse le poser elle aussi. Sans
+ * cela, une arène tombée sur ce dernier recours n'avait aucun champion — donc aucun
+ * badge, donc une partie qu'on ne pouvait plus finir.
+ */
+function creerChampion(rng: Rng, plan: RegionPlan, position: Position): Entite {
+  // Le champion tient sa spécialité : son escorte est composée dans son type, et sa tête
+  // d'affiche en est la créature la plus aboutie qui n'y figure pas déjà. Sans cette
+  // dernière condition, une arène de type mince alignait deux fois la même créature —
+  // et la plus puissante du jeu, qui plus est.
+  const specialite = especesDuType(plan.typeArene ?? 'neutre');
+  // La tête d'affiche se choisit **en premier** — c'est la plus aboutie de sa spécialité,
+  // et son escorte se compose ensuite autour d'elle. L'ordre inverse laissait l'escorte
+  // épuiser un vivier mince, et la vedette n'avait plus qu'à se doubler elle-même.
+  const vedette = formeAuNiveau(specialite[0] ?? 'chatoyan', plan.niveaux.max);
+  // Un registre unique pour toutes les passes : sans lui, la créature tirée dans la
+  // région pouvait doubler celle tirée dans la spécialité.
+  const dejaLa = new Set<SpeciesId>([vedette]);
+  // L'escorte s'étale sur plusieurs niveaux au lieu de se masser juste sous la vedette.
+  // C'est ce qui rend disponibles les **stades intermédiaires** : la flamme et la foudre
+  // n'ont qu'une lignée chacune, et une escorte au même niveau qu'elle n'en proposait
+  // qu'une seule forme. Un champion élève des créatures d'âges différents.
+  // L'écart est proportionnel : sept niveaux sous une arène de niveau 35 se lit comme
+  // une équipe d'âges variés, sous une arène de niveau 13 comme un champion qui
+  // promène des nouveau-nés.
+  const ecart = Math.max(2, Math.round(plan.niveaux.max * 0.2));
+  const escorte = [
+    ...composerEquipe(rng, plan, 1, -ecart, specialite, dejaLa),
+    ...composerEquipe(rng, plan, 1, -Math.max(1, Math.round(ecart / 2)), specialite, dejaLa),
+    ...composerEquipe(rng, plan, 1, -1, undefined, dejaLa),
+  ];
+
+  return {
+    kind: 'dresseur',
+    id: entiteId(plan.index, 'dresseur', 0),
+    ...position,
+    sprite: 'champion',
+    dialogue: 'dialogue.champion',
+    dialogueVaincu: 'dialogue.championVaincu',
+    // Deux créatures de sa spécialité, une piochée dans la région, et sa tête d'affiche.
+    // Une équipe entièrement mono-type se heurtait à deux écueils : les types au vivier
+    // mince alignaient quatre fois la même créature, et ceux au vivier large quatre
+    // bouts de lignée d'affilée. Un champion a une préférence, pas une exclusivité.
+    equipe: [...escorte, { species: vedette, niveau: plan.niveaux.max }],
+    recompense: 800 + 90 * plan.niveaux.max,
+    champion: true,
+    vision: 6,
+    regard: 'sud',
+  };
+}
+
 const genererArene: Generateur = (contexte, portes) => {
   const { tiles, rng, plan } = contexte;
   const entites: Entite[] = [];
@@ -660,50 +760,9 @@ const genererArene: Generateur = (contexte, portes) => {
     creuserCouloir(tiles, rng, { x: centreX, y: 4 }, portes.nord, 'solInterieur');
   }
 
-  // Le champion tient sa spécialité : son escorte est composée dans son type, et sa tête
-  // d'affiche en est la créature la plus aboutie qui n'y figure pas déjà. Sans cette
-  // dernière condition, une arène de type mince alignait deux fois la même créature —
-  // et la plus puissante du jeu, qui plus est.
-  const specialite = especesDuType(plan.typeArene ?? 'neutre');
-  // La tête d'affiche se choisit **en premier** — c'est la plus aboutie de sa spécialité,
-  // et son escorte se compose ensuite autour d'elle. L'ordre inverse laissait l'escorte
-  // épuiser un vivier mince, et la vedette n'avait plus qu'à se doubler elle-même.
-  const vedette = formeAuNiveau(specialite[0] ?? 'chatoyan', plan.niveaux.max);
-  // Un registre unique pour toutes les passes : sans lui, la créature tirée dans la
-  // région pouvait doubler celle tirée dans la spécialité.
-  const dejaLa = new Set<SpeciesId>([vedette]);
-  // L'escorte s'étale sur plusieurs niveaux au lieu de se masser juste sous la vedette.
-  // C'est ce qui rend disponibles les **stades intermédiaires** : la flamme et la foudre
-  // n'ont qu'une lignée chacune, et une escorte au même niveau qu'elle n'en proposait
-  // qu'une seule forme. Un champion élève des créatures d'âges différents.
-  // L'écart est proportionnel : sept niveaux sous une arène de niveau 35 se lit comme
-  // une équipe d'âges variés, sous une arène de niveau 13 comme un champion qui
-  // promène des nouveau-nés.
-  const ecart = Math.max(2, Math.round(plan.niveaux.max * 0.2));
-  const escorte = [
-    ...composerEquipe(rng, plan, 1, -ecart, specialite, dejaLa),
-    ...composerEquipe(rng, plan, 1, -Math.max(1, Math.round(ecart / 2)), specialite, dejaLa),
-    ...composerEquipe(rng, plan, 1, -1, undefined, dejaLa),
-  ];
   const champion = { x: centreX, y: 9 };
   contexte.occupees.add(champion.y * REGION_WIDTH + champion.x);
-  entites.push({
-    kind: 'dresseur',
-    id: entiteId(plan.index, 'dresseur', 0),
-    ...champion,
-    sprite: 'champion',
-    dialogue: 'dialogue.champion',
-    dialogueVaincu: 'dialogue.championVaincu',
-    // Deux créatures de sa spécialité, une piochée dans la région, et sa tête d'affiche.
-    // Une équipe entièrement mono-type se heurtait à deux écueils : les types au vivier
-    // mince alignaient quatre fois la même créature, et ceux au vivier large quatre
-    // bouts de lignée d'affilée. Un champion a une préférence, pas une exclusivité.
-    equipe: [...escorte, { species: vedette, niveau: plan.niveaux.max }],
-    recompense: 800 + 90 * plan.niveaux.max,
-    champion: true,
-    vision: 6,
-    regard: 'sud',
-  });
+  entites.push(creerChampion(rng, plan, champion));
 
   for (let i = 0; i < 2; i++) {
     const place = caseLibre(contexte, { x: centreX + (i === 0 ? -8 : 8), y: 16 });
@@ -778,6 +837,41 @@ const genererSanctuaire: Generateur = (contexte, portes) => {
 };
 
 /** Route, bois, grotte : terrain sauvage traversé par un chemin. */
+/**
+ * Sème quelques rebords : des raccourcis à sens unique, qu'on saute vers le sud.
+ *
+ * Toute la mécanique existait — le saut, son animation, le cas du pathfinding, la couleur
+ * sur la carte, le sprite, et deux dialogues qui l'enseignent au joueur — mais aucune
+ * palette ne posait la tuile. Le jeu expliquait une règle qu'il n'appliquait nulle part.
+ *
+ * La pose reste prudente : de courtes corniches horizontales, à l'écart des bords et des
+ * chemins déjà creusés, sur une case dont le nord et le sud sont libres. Un rebord ne
+ * pouvant plus se remonter, il peut couper une région en deux : c'est la vérification de
+ * connectivité — devenue consciente des rebords — qui tranche, et la région se régénère
+ * si elle échoue.
+ */
+function poserRebords(tiles: Uint8Array, rng: Rng, palette: PaletteBiome): void {
+  const corniches = rng.int(1, 3);
+
+  for (let i = 0; i < corniches; i++) {
+    const longueur = rng.int(2, 5);
+    const x0 = rng.int(4, REGION_WIDTH - 5 - longueur);
+    const y = rng.int(6, REGION_HEIGHT - 8);
+
+    for (let x = x0; x < x0 + longueur; x++) {
+      // On ne pose que sur du sol nu : ni chemin creusé, ni eau, ni décor, ni herbe de
+      // rencontre — un rebord qui remplacerait une zone de rencontre la ferait
+      // disparaître.
+      if (lire(tiles, x, y) !== palette.sol) continue;
+      // Il faut de quoi s'élancer au nord, et de quoi retomber au sud.
+      if (!marchable(tiles, x, y - 1)) continue;
+      if (!marchable(tiles, x, y + 1)) continue;
+      if (lire(tiles, x, y + 1) === 'eau') continue;
+      poser(tiles, x, y, 'rebord');
+    }
+  }
+}
+
 const genererSauvage: Generateur = (contexte, portes) => {
   const { tiles, rng, plan } = contexte;
   const entites: Entite[] = [];
@@ -790,6 +884,8 @@ const genererSauvage: Generateur = (contexte, portes) => {
   // simple couloir d'un bord à l'autre.
   const detour = { x: rng.int(6, REGION_WIDTH - 7), y: rng.int(6, REGION_HEIGHT - 7) };
   creuserCouloir(tiles, rng, depart, detour, palette.chemin);
+
+  poserRebords(tiles, rng, palette);
 
   const nombreDresseurs = plan.role === 'grotte' ? 1 : rng.int(1, 3);
   for (let i = 0; i < nombreDresseurs; i++) {
@@ -857,6 +953,33 @@ const GENERATEURS: Record<RegionRole, Generateur> = {
   grotte: genererSauvage,
 };
 
+/**
+ * Les rôles qui sèment des zones de rencontre, et donc les seuls où la faune d'un biome
+ * s'attrape.
+ *
+ * Bourg, village et arène n'en posent aucune — une arène partage pourtant le biome des
+ * ruines, ce qui a longtemps fait croire cette faune accessible. La liste sert au
+ * recensement des espèces d'un monde : la croire plus large qu'elle n'est reviendrait à
+ * déclarer complétable un Terradex qui ne l'est pas. Un test la confronte aux régions
+ * réellement générées.
+ */
+export const ROLES_AVEC_FAUNE_ORDINAIRE: readonly RegionRole[] = [
+  'route',
+  'bois',
+  'grotte',
+  'sanctuaire',
+];
+
+/**
+ * Vrai si le biome pose de l'eau, et donc si l'on peut y pêcher.
+ *
+ * La proportion est tenue par quantile sur toute la grille : dès qu'elle est non nulle,
+ * l'eau est présente. Seules les ruines en sont dépourvues.
+ */
+export function biomeAvecEau(biome: Biome): boolean {
+  return PALETTES[biome].eau > 0;
+}
+
 // ── Orchestration ────────────────────────────────────────────────────────────
 
 /** Nombre de régénérations avant de se rabattre sur un couloir garanti. */
@@ -923,6 +1046,7 @@ function tenter(seed: number, plan: RegionPlan, tentative: number): Region | nul
     nom: plan.nom,
     niveaux: plan.niveaux,
     typeArene: plan.typeArene,
+    complement: plan.complement,
     width: REGION_WIDTH,
     height: REGION_HEIGHT,
     tiles,
@@ -996,6 +1120,16 @@ function regionDeSecours(seed: number, plan: RegionPlan): Region {
     sorties.push({ cote, x: porte.x, y: cote === 'sud' ? REGION_HEIGHT - 1 : 0, vers });
   }
 
+  // Une arène sans champion est une partie qu'on ne peut plus finir : pas de badge, donc
+  // pas de porte nord, donc pas de sanctuaire. Le dernier recours dessine un couloir nu,
+  // mais il ne peut pas se permettre de laisser le champion derrière lui.
+  const entites: Entite[] = [];
+  if (plan.role === 'arene') {
+    const surLeChemin = { x: depart.x, y: Math.max(2, Math.floor(REGION_HEIGHT / 2)) };
+    poser(tiles, surLeChemin.x, surLeChemin.y, palette.chemin);
+    entites.push(creerChampion(rngFor(seed, plan.index, 'secours'), plan, surLeChemin));
+  }
+
   return {
     index: plan.index,
     role: plan.role,
@@ -1003,12 +1137,13 @@ function regionDeSecours(seed: number, plan: RegionPlan): Region {
     nom: plan.nom,
     niveaux: plan.niveaux,
     typeArene: plan.typeArene,
+    complement: plan.complement,
     width: REGION_WIDTH,
     height: REGION_HEIGHT,
     tiles,
     depart,
     sorties,
-    entites: [],
+    entites,
   };
 }
 

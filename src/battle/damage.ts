@@ -31,12 +31,22 @@ export interface Combattant {
   readonly instance: CreatureInstance;
   /** Étages de statistique, de −6 à +6. */
   readonly etages: Record<BattleStat, number>;
+  /**
+   * Vrai quand le poison qui ronge cette créature a été posé par un talent Venimeux.
+   *
+   * L'information appartient au poison, pas à l'adversaire présent : sans elle, faire
+   * entrer une créature Venimeux doublait rétroactivement un poison qu'elle n'avait pas
+   * infligé. Le combat sauvegardé ne la transporte pas — au pire, une reprise ramène le
+   * poison à son intensité ordinaire.
+   */
+  poisonVirulent: boolean;
 }
 
 export function creerCombattant(instance: CreatureInstance): Combattant {
   return {
     instance,
     etages: { attaque: 0, defense: 0, attaqueSpe: 0, defenseSpe: 0, vitesse: 0 },
+    poisonVirulent: false,
   };
 }
 

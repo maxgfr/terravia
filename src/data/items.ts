@@ -119,7 +119,7 @@ const DEFINITIONS: Record<ItemId, Omit<Item, 'id'>> = {
     nom: { fr: 'Pierre d’Éveil', en: 'Waking Stone' },
     description: { fr: 'Précipite une évolution déjà proche.', en: 'Hastens an evolution already close.' },
     effet: { kind: 'evolution' },
-    prix: 0,
+    prix: 900,
     usage: 'monde',
   },
   carte: {
@@ -146,8 +146,8 @@ export function getItem(id: ItemId): Item {
   return ITEMS[id];
 }
 
-/** Ce que la boutique du village propose, dans l'ordre d'affichage. */
-export const SHOP_STOCK = [
+/** Ce qu'une boutique propose dès le premier jour. */
+const STOCK_BASE = [
   'prisme',
   'prismeAncre',
   'potion',
@@ -156,6 +156,25 @@ export const SHOP_STOCK = [
   'reveil',
   'panacee',
 ] as const satisfies readonly ItemId[];
+
+/**
+ * Ce qui n'arrive en rayon qu'une fois le premier badge décroché.
+ *
+ * Le Prisme Royal n'était vendu ni ramassable nulle part : l'aide le dessinait et
+ * l'encyclopédie promettait de le « trouver », mais rien ne le plaçait. La Pierre
+ * d'Éveil, elle, ne gisait qu'au fond des grottes — absentes de près d'un monde sur deux,
+ * ce qui rendait deux lignées inévoluables selon la seed. Les vendre les rend sûrs ;
+ * les gâter derrière un badge évite de brader le meilleur prisme du jeu au premier étal.
+ */
+const STOCK_AVANCE = ['prismeRoyal', 'pierreEvolution'] as const satisfies readonly ItemId[];
+
+/** Le catalogue complet, pour l'encyclopédie. */
+export const SHOP_STOCK = [...STOCK_BASE, ...STOCK_AVANCE] as const satisfies readonly ItemId[];
+
+/** Ce qu'un étal propose à ce stade de l'aventure. */
+export function stockBoutique(badges: number): readonly ItemId[] {
+  return badges > 0 ? SHOP_STOCK : STOCK_BASE;
+}
 
 export function isKeyItem(id: ItemId): boolean {
   return ITEMS[id].effet.kind === 'cle';

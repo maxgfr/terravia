@@ -42,8 +42,23 @@ function plafondPuissance(niveauMax: number): number {
 export interface OptionsTable {
   /** Plafonne la puissance des espèces proposées. Absent, la table n'est pas bridée. */
   readonly niveauMax?: number;
-  /** Ouvre la table aux créatures uniques. Réservé au sanctuaire. */
+  /**
+   * Ajoute les créatures uniques à la table. Réservé au sanctuaire.
+   *
+   * Elles s'ajoutent à la faune ordinaire du biome, elles ne la remplacent pas : en
+   * l'excluant, le sanctuaire rendait introuvables les espèces qui n'habitent que les
+   * ruines — Acierac et Noctombre ne pouvaient être attrapés dans aucune partie, puisque
+   * les ruines ne sont le biome que des arènes, qui ne sèment aucune herbe.
+   */
   readonly uniques?: boolean;
+  /**
+   * Espèces ajoutées à la table quoi qu'en disent leurs biomes.
+   *
+   * Le sanctuaire s'en sert pour accueillir ce que le monde tiré n'offrait nulle part :
+   * c'est ce qui rend le Terradex complétable dans *chaque* partie, et non dans celles
+   * que la seed a bien voulu servir.
+   */
+  readonly complement?: readonly SpeciesId[];
 }
 
 /** Les espèces susceptibles d'apparaître dans un biome à une phase donnée. */
@@ -52,10 +67,14 @@ export function tableRencontre(biome: Biome, phase: DayPhase, options: OptionsTa
     (id) =>
       SPECIES[id].habitats.includes(biome) &&
       visibleA(id, phase) &&
-      (options.uniques
-        ? SPECIES[id].tauxCapture <= SEUIL_UNIQUE
-        : SPECIES[id].tauxCapture > SEUIL_UNIQUE),
+      (options.uniques || SPECIES[id].tauxCapture > SEUIL_UNIQUE),
   );
+
+  if (options.complement?.length) {
+    for (const id of options.complement) {
+      if (!habitantes.includes(id) && visibleA(id, phase)) habitantes.push(id);
+    }
+  }
 
   if (options.niveauMax === undefined || options.uniques) return habitantes;
 
@@ -114,3 +133,77 @@ export function tirerRencontre(
 
 /** Probabilité de déclencher une rencontre à chaque pas dans les hautes herbes. */
 export const TAUX_RENCONTRE = 0.11;
+
+/**
+ * Ce qu'une région apporte au recensement.
+ *
+ * La forme est décrite ici plutôt qu'importée de `region.ts` pour que le recensement ne
+ * fasse pas dépendre les tables de rencontre de la génération de terrain. C'est l'appelant
+ * qui renseigne les deux drapeaux, puisque lui seul sait ce que chaque rôle sème.
+ */
+export interface RegionRecensee {
+  readonly biome: Biome;
+  readonly niveaux: { readonly max: number };
+  /** La région sème des zones de rencontre : la faune de son biome s'y attrape. */
+  readonly fauneOrdinaire: boolean;
+  /** La région comporte de l'eau : la faune de rivière s'y pêche, canne en main. */
+  readonly peche: boolean;
+}
+
+/**
+ * Les espèces qu'un monde donné laisse effectivement attraper, évolutions comprises.
+ *
+ * Ne comptent que les moyens qui rendent une créature *possédable* : les zones de
+ * rencontre des régions traversées, la pêche partout où il y a de l'eau, puis la clôture
+ * par évolution. Une créature aperçue dans l'équipe d'un dresseur ne compte pas — le
+ * moteur refuse de la capturer — et les trois créatures de départ non plus, puisqu'on
+ * n'en garde qu'une.
+ */
+export function especesAccessibles(regions: readonly RegionRecensee[]): Set<SpeciesId> {
+  const accessibles = new Set<SpeciesId>();
+  for (const region of regions) {
+    for (const phase of DAY_PHASES) {
+      if (region.fauneOrdinaire) {
+        for (const id of tableRencontre(region.biome, phase, { niveauMax: region.niveaux.max })) {
+          accessibles.add(id);
+        }
+      }
+      // La canne ouvre la faune de rivière sur toute étendue d'eau, quel que soit le biome.
+      if (region.peche) {
+        for (const id of tableRencontre('riviere', phase, { niveauMax: region.niveaux.max })) {
+          accessibles.add(id);
+        }
+      }
+    }
+  }
+
+  // Clôture par évolution : ce qu'on attrape mène à ce en quoi cela se transforme.
+  for (let ajout = true; ajout; ) {
+    ajout = false;
+    for (const id of [...accessibles]) {
+      const evolution = SPECIES[id].evolution;
+      if (evolution && !accessibles.has(evolution.vers)) {
+        accessibles.add(evolution.vers);
+        ajout = true;
+      }
+    }
+  }
+  return accessibles;
+}
+
+/**
+ * Les espèces ordinaires qu'aucune région du monde ne procure.
+ *
+ * Le monde tire ses biomes librement : près d'un monde sur deux ne comporte aucune
+ * grotte, et plus d'un sur trois aucune rivière. Sans compensation, le Terradex n'était
+ * complétable que dans une partie sur quatre. Le sanctuaire — déjà le lieu des créatures
+ * qu'on ne voit nulle part ailleurs — accueille donc ce qui manque.
+ *
+ * Les uniques sont exclues : elles y vivent déjà.
+ */
+export function especesManquantes(regions: readonly RegionRecensee[]): SpeciesId[] {
+  const accessibles = especesAccessibles(regions);
+  return SPECIES_IDS.filter(
+    (id) => !accessibles.has(id) && SPECIES[id].tauxCapture > SEUIL_UNIQUE,
+  );
+}

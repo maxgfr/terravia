@@ -246,7 +246,9 @@ const DEFINITIONS: Record<SpeciesId, SpeciesDefinition> = {
       { niveau: 33, move: 'elanTemeraire' },
     ],
     evolution: { vers: 'flamboux', niveau: 16 },
-    talents: ['braise', 'sangFroid'],
+    // Pas de Sang-Froid ici : un type Flamme est déjà à l'abri de la brûlure par la règle
+    // de type, et la moitié des Braisou tiraient donc un talent sans effet.
+    talents: ['braise', 'oeilAiguise'],
     habitats: ['prairie', 'montagne'],
     creneau: 'toujours',
     taille: 0.5,
@@ -942,7 +944,10 @@ const DEFINITIONS: Record<SpeciesId, SpeciesDefinition> = {
     // Les ruines s'ajoutent à la grotte : c'est le biome du sanctuaire, seul endroit où
     // les créatures uniques se laissent croiser. Sans cela, Nyxaris n'existait nulle
     // part dans le jeu et le Terradex ne pouvait pas se terminer.
-    habitats: ['grotte', 'ruines'],
+    // Les ruines seules, comme les deux autres uniques : le Terradex affiche les habitats
+    // tels quels, et « Grotte » y promettait un lieu où l'on ne croise jamais Nyxaris —
+    // les uniques sont écartées de toutes les tables hors sanctuaire.
+    habitats: ['ruines'],
     creneau: 'nuit',
     taille: 2.1,
     poids: 88,

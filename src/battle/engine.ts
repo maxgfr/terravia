@@ -143,12 +143,19 @@ function appliquerStatut(
   statut: StatusId,
   rng: Rng,
   evenements: BattleEvent[],
+  auteur: Cote | null = null,
 ): void {
   const cible = combattant(state, cote);
   if (cible.instance.statut !== null) return;
   if (immuniseAuStatut(cible, statut)) return;
   cible.instance.statut = statut;
   if (statut === 'sommeil') cible.instance.sommeil = rng.int(1, 3);
+  // La marque est réécrite à chaque empoisonnement, jamais seulement posée : une créature
+  // guérie puis réempoisonnée par un adversaire ordinaire ne doit pas rester virulente.
+  if (statut === 'poison') {
+    cible.poisonVirulent =
+      auteur !== null && TALENTS[combattant(state, auteur).instance.talentId].effet.kind === 'venimeux';
+  }
   evenements.push({ type: 'statut', cible: cote, statut });
 }
 
@@ -178,6 +185,23 @@ function attaqueChoisie(acteur: Combattant, index: number): { move: Move; slot: 
   const disponible = acteur.instance.moves.findIndex((candidat) => candidat.pp > 0);
   if (disponible >= 0) return { move: MOVES[acteur.instance.moves[disponible]!.id], slot: disponible };
   return { move: MOVES.lutte, slot: null };
+}
+
+/**
+ * Vrai si l'attaque agit sur l'adversaire, et non sur celui qui la lance.
+ *
+ * Une attaque qui inflige des dégâts vise toujours l'adversaire. Parmi les attaques de
+ * statut, seules celles qui posent une altération ou abaissent une statistique adverse le
+ * font : un soin ou une montée de statistique sur soi ne consulte jamais la cible, et ne
+ * doit donc pas être arrêtée par l'immunité de type de cette cible.
+ */
+function viseLAdversaire(move: Move): boolean {
+  if (move.categorie !== 'statut') return true;
+  const effet = move.effet;
+  if (!effet) return false;
+  if (effet.kind === 'statut') return true;
+  if (effet.kind === 'stat') return effet.cible !== 'soi';
+  return false;
 }
 
 /**
@@ -237,7 +261,14 @@ function executerAttaque(
   if (slot !== null) acteur.instance.moves[slot]!.pp -= 1;
   evenements.push({ type: 'attaque', acteur: cote, move: move.id });
 
-  // Absorption : le talent annule l'attaque et soigne, avant tout calcul de dégâts.
+  if (!toucheLaCible(move, rng)) {
+    evenements.push({ type: 'rate', acteur: cote });
+    return;
+  }
+
+  // Absorption : le talent annule l'attaque et soigne. Il passe après le jet de précision
+  // — on n'absorbe pas une attaque qui n'a pas touché — mais avant l'immunité de type, car
+  // un talent nommément accordé à un type l'emporte sur la règle générale.
   const talentCible = TALENTS[cible.instance.talentId].effet;
   if (talentCible.kind === 'absorption' && talentCible.type === move.type && move.categorie !== 'statut') {
     const rendu = rendrePv(state, coteCible, pvMax(cible.instance) * talentCible.soin);
@@ -246,26 +277,27 @@ function executerAttaque(
     return;
   }
 
-  if (!toucheLaCible(move, rng)) {
-    evenements.push({ type: 'rate', acteur: cote });
-    return;
+  // Une immunité de type vaut pour toute attaque qui vise l'adversaire, y compris de
+  // catégorie statut : sans ce contrôle, Onde de Choc paralysait une créature Roche que
+  // la table des types déclare pourtant hors d'atteinte de la Foudre. Les attaques
+  // tournées vers soi — soins et montées de statistiques — ne regardent pas la cible.
+  if (viseLAdversaire(move)) {
+    const immunise = effectivenessAgainst(move.type, SPECIES[cible.instance.speciesId].types) === 0;
+    if (immunise) {
+      evenements.push({
+        type: 'degats',
+        cible: coteCible,
+        montant: 0,
+        palier: 'immune',
+        critique: false,
+        pvRestants: cible.instance.pv,
+      });
+      return;
+    }
   }
 
   if (move.categorie === 'statut') {
     appliquerEffet(state, cote, move, 0, rng, evenements);
-    return;
-  }
-
-  const immunise = effectivenessAgainst(move.type, SPECIES[cible.instance.speciesId].types) === 0;
-  if (immunise) {
-    evenements.push({
-      type: 'degats',
-      cible: coteCible,
-      montant: 0,
-      palier: 'immune',
-      critique: false,
-      pvRestants: cible.instance.pv,
-    });
     return;
   }
 
@@ -320,7 +352,9 @@ function appliquerEffet(
 
   switch (effet.kind) {
     case 'statut':
-      if (rng.next() * 100 < effet.chance) appliquerStatut(state, coteCible, effet.statut, rng, evenements);
+      if (rng.next() * 100 < effet.chance) {
+        appliquerStatut(state, coteCible, effet.statut, rng, evenements, cote);
+      }
       break;
 
     case 'stat': {
@@ -396,10 +430,10 @@ function finDeTour(state: BattleState, rng: Rng, evenements: BattleEvent[]): voi
     const statut = acteur.instance.statut;
     if (statut !== 'brulure' && statut !== 'poison') continue;
 
-    // Le talent Venimeux double les dégâts du poison qu'il a infligé : on le lit chez
-    // l'adversaire, puisque c'est lui qui a empoisonné.
-    const empoisonneur = TALENTS[combattant(state, autre(cote)).instance.talentId].effet;
-    const facteur = statut === 'poison' && empoisonneur.kind === 'venimeux' ? 2 : 1;
+    // Le talent Venimeux double les dégâts du poison qu'il a infligé. La marque est posée
+    // au moment de l'empoisonnement, et non relue chez l'adversaire du moment : un
+    // remplaçant Venimeux ne reprend pas à son compte le poison d'un autre.
+    const facteur = statut === 'poison' && acteur.poisonVirulent ? 2 : 1;
     const degats = Math.max(1, Math.floor((pvMax(acteur.instance) / 16) * facteur));
     const inflige = infligerDegats(state, cote, degats);
     evenements.push({ type: 'message', cle: `combat.souffre.${statut}` });
@@ -479,6 +513,12 @@ export function resoudreTour(
       }
     }
   } else if (action.kind === 'capture') {
+    // On ne capture pas la créature d'un dresseur. La règle vit ici et non dans l'écran de
+    // combat : l'interface rejoue des événements, elle n'arbitre rien.
+    if (state.genre === 'dresseur') {
+      evenements.push({ type: 'message', cle: 'combat.captureImpossible' });
+      return evenements;
+    }
     const resultat = tenterCapture(state.adversaire.instance, action.item, rng);
     evenements.push({ type: 'objet', item: action.item });
     evenements.push({ type: 'capture', secousses: resultat.secousses, reussi: resultat.reussi });

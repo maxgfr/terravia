@@ -640,3 +640,118 @@ describe('personne ne se blesse tout seul', () => {
     }
   });
 });
+
+describe('immunités de type et attaques de statut', () => {
+  /**
+   * Le moteur traitait la catégorie « statut » avant de consulter la table des types.
+   * Onde de Choc paralysait donc un Roche que la table déclare hors d'atteinte de la
+   * Foudre : l'immunité ne valait que pour les dégâts, jamais pour les altérations.
+   */
+  it('refuse une attaque de statut à laquelle la cible est immunisée', () => {
+    const cas = [
+      { move: 'ondeDeChoc', cible: 'menhirok' },
+      { move: 'brumeToxique', cible: 'ferraillon' },
+      { move: 'cri', cible: 'spectrin' },
+    ] as const;
+
+    for (const { move, cible } of cas) {
+      const attaquant = creature('luciolin', 40);
+      attaquant.moves = [{ id: move, pp: MOVES[move].pp }];
+      const defenseur = creature(cible, 40);
+      const state = creerCombat(attaquant, defenseur, 'sauvage');
+
+      const events = resoudreTour(state, { kind: 'attaque', index: 0 }, 0, makeRng(7));
+      const immunite = events.find((event) => event.type === 'degats' && event.palier === 'immune');
+
+      expect(immunite, `${move} contre ${cible} doit être annoncée sans effet`).toBeDefined();
+      expect(state.adversaire.instance.statut, `${move} ne doit pas altérer ${cible}`).toBeNull();
+      expect(
+        Object.values(state.adversaire.etages).every((etage) => etage === 0),
+        `${move} ne doit pas modifier les statistiques de ${cible}`,
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * Le revers de la même règle : une attaque tournée vers soi ne consulte pas la cible,
+   * et ne doit donc pas être arrêtée par l'immunité de cette cible.
+   */
+  it('laisse passer un soin ou une montée de statistique sur soi', () => {
+    const attaquant = creature('mulotin', 40);
+    attaquant.moves = [{ id: 'repli', pp: MOVES.repli.pp }];
+    const state = creerCombat(attaquant, creature('spectrin', 40), 'sauvage');
+
+    resoudreTour(state, { kind: 'attaque', index: 0 }, 0, makeRng(3));
+    expect(state.joueur.etages.defense).toBe(1);
+  });
+});
+
+describe('règles tenues par le moteur seul', () => {
+  it('refuse la capture de la créature d’un dresseur', () => {
+    const state = creerCombat(creature('braisou', 20), creature('mulotin', 18), 'dresseur');
+    const events = resoudreTour(state, { kind: 'capture', item: 'prisme' }, 0, makeRng(2));
+
+    expect(events.some((event) => event.type === 'capture')).toBe(false);
+    expect(state.issue).not.toBe('capture');
+    expect(
+      events.some((event) => event.type === 'message' && event.cle === 'combat.captureImpossible'),
+    ).toBe(true);
+  });
+
+  /**
+   * La cote de fuite passait par un modulo : la huitième tentative retombait de 0,97 à
+   * 0,09, exactement à l'inverse de ce que promet la documentation de la fonction.
+   */
+  it('fait monter la chance de fuite à chaque échec, sans jamais la faire boucler', () => {
+    let precedente = 0;
+    for (let tentative = 0; tentative < 12; tentative++) {
+      const chance = chanceDeFuite(50, 100, tentative);
+      expect(chance, `tentative ${tentative}`).toBeGreaterThanOrEqual(precedente);
+      expect(chance).toBeLessThanOrEqual(1);
+      precedente = chance;
+    }
+    expect(precedente).toBe(1);
+  });
+});
+
+describe('évolution entre deux courbes de croissance', () => {
+  /**
+   * Trois évolutions changent de courbe : Harponaz (rapide) devient Abyssarque (lent), et
+   * deux autres. L'expérience brute se relisant sur la nouvelle courbe, un Abyssarque de
+   * niveau 36 retombait au niveau 31 au premier point d'expérience suivant — en annonçant
+   * une « montée de niveau » — et gardait ses anciens points de vie, soit 113 sur 98.
+   */
+  const paires = [
+    { de: 'harponaz', vers: 'abyssarque', niveau: 36 },
+    { de: 'cavernin', vers: 'troglodon', niveau: 26 },
+    { de: 'cabrilion', vers: 'alpirok', niveau: 22 },
+  ] as const;
+
+  it('ne fait jamais redescendre de niveau', () => {
+    for (const { de, vers, niveau } of paires) {
+      const evolue = evoluer(creature(de, niveau), vers);
+      const gain = gagnerExperience(evolue, 1);
+
+      expect(gain.niveauApres, `${de} → ${vers}`).toBeGreaterThanOrEqual(gain.niveauAvant);
+      expect(evolue.niveau, `${de} → ${vers}`).toBe(niveau);
+    }
+  });
+
+  it('ne laisse jamais les points de vie dépasser leur maximum', () => {
+    for (const { de, vers, niveau } of paires) {
+      const evolue = evoluer(creature(de, niveau), vers);
+      expect(evolue.pv, `${de} → ${vers} juste après l'évolution`).toBeLessThanOrEqual(pvMax(evolue));
+
+      gagnerExperience(evolue, 1);
+      expect(evolue.pv, `${de} → ${vers} après un gain d'expérience`).toBeLessThanOrEqual(pvMax(evolue));
+    }
+  });
+
+  it('conserve la progression acquise avant l’évolution', () => {
+    for (const { de, vers, niveau } of paires) {
+      const avant = creature(de, niveau);
+      const evolue = evoluer(avant, vers);
+      expect(evolue.xp, `${de} → ${vers}`).toBeGreaterThanOrEqual(avant.xp);
+    }
+  });
+});

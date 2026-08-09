@@ -143,12 +143,20 @@ export function gagnerExperience(instance: CreatureInstance, montant: number): G
   const pvMaxAvant = pvMax(instance);
 
   instance.xp += Math.max(0, Math.round(montant));
-  const niveauApres = levelForExperience(instance.xp, species.croissance);
+  // Un niveau ne redescend jamais. La borne compte : une évolution peut changer de courbe
+  // de croissance, et la même expérience se relit alors plus bas sur la nouvelle courbe.
+  // `evoluer` réancre l'expérience pour que le cas ne se présente pas, mais une
+  // sauvegarde écrite avant ce correctif peut encore porter le décalage.
+  const niveauApres = Math.max(niveauAvant, levelForExperience(instance.xp, species.croissance));
   instance.niveau = niveauApres;
+
+  // Les PV suivent l'enveloppe dans les deux sens : la laisser rétrécir sans corriger les
+  // PV courants produirait un `pv > pvMax` que rien ne rattraperait avant la sauvegarde.
+  const pvMaxApres = pvMax(instance);
+  if (pvMaxApres !== pvMaxAvant) instance.pv = Math.max(0, Math.min(instance.pv + pvMaxApres - pvMaxAvant, pvMaxApres));
 
   const nouvellesAttaques: MoveId[] = [];
   if (niveauApres > niveauAvant) {
-    instance.pv += pvMax(instance) - pvMaxAvant;
     for (const entree of species.apprentissage) {
       if (entree.niveau > niveauAvant && entree.niveau <= niveauApres) {
         if (!instance.moves.some((slot) => slot.id === entree.move)) nouvellesAttaques.push(entree.move);
@@ -182,6 +190,17 @@ export function apprendreAttaque(instance: CreatureInstance, move: MoveId, rempl
 export function evoluer(instance: CreatureInstance, vers: SpeciesId): CreatureInstance {
   const pvMaxAvant = pvMax(instance);
   const evolue: CreatureInstance = { ...instance, speciesId: vers };
+
+  // Trois évolutions changent de courbe de croissance — Harponaz (rapide) devient
+  // Abyssarque (lent), et deux autres. L'expérience brute se relit alors plus bas sur la
+  // nouvelle courbe : sans ce réancrage, un Abyssarque de niveau 36 retombait au niveau 31
+  // au premier point d'expérience suivant, en annonçant une « montée de niveau ».
+  // On garde le maximum : évoluer ne fait jamais perdre de progression acquise.
+  const croissance = SPECIES[vers].croissance;
+  if (croissance !== SPECIES[instance.speciesId].croissance) {
+    evolue.xp = Math.max(instance.xp, experienceForLevel(instance.niveau, croissance));
+  }
+
   // Les PV suivent la nouvelle enveloppe : une créature à mi-vie le reste.
   const ratio = pvMaxAvant > 0 ? instance.pv / pvMaxAvant : 1;
   evolue.pv = Math.max(1, Math.round(pvMax(evolue) * ratio));

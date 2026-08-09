@@ -65,6 +65,9 @@ export function tenterCapture(
  */
 export function chanceDeFuite(vitesseJoueur: number, vitesseAdverse: number, tentatives: number): number {
   if (vitesseJoueur > vitesseAdverse) return 1;
-  const cote = ((vitesseJoueur * 128) / Math.max(1, vitesseAdverse) + 30 * (tentatives + 1)) % 256;
+  // La cote sature au lieu de boucler. Le modulo d'origine ramenait la huitième tentative
+  // de 0,97 à 0,09 : la promesse « chaque échec rapproche de la fuite » se retournait
+  // exactement au moment où le joueur en avait le plus besoin.
+  const cote = (vitesseJoueur * 128) / Math.max(1, vitesseAdverse) + 30 * (tentatives + 1);
   return Math.min(1, cote / 256);
 }

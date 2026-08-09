@@ -19,8 +19,15 @@ import { rngFor, seedValue, type Rng } from '../core/rng.ts';
 import type { Biome } from '../data/biomes.ts';
 import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../data/types.ts';
 import { SPECIES, SPECIES_IDS, baseStatTotal, type SpeciesId } from '../data/species.ts';
-import { genererRegion, type Region, type RegionPlan, type RegionRole } from './region.ts';
-import { tableRencontre } from './encounters.ts';
+import {
+  ROLES_AVEC_FAUNE_ORDINAIRE,
+  biomeAvecEau,
+  genererRegion,
+  type Region,
+  type RegionPlan,
+  type RegionRole,
+} from './region.ts';
+import { especesManquantes, tableRencontre } from './encounters.ts';
 
 /**
  * Bornes de la longueur du parcours, sanctuaire compris.
@@ -112,7 +119,7 @@ function tirerSauvage(rng: Rng, exclus: readonly RegionRole[]): RegionRole {
 /** La suite des rôles, du bourg au sanctuaire. */
 function composerRoles(rng: Rng): RegionRole[] {
   const nombreArenes = rng.int(2, 3);
-  const longueur = rng.int(REGIONS_MIN, REGIONS_MAX - 1);
+  const longueur = rng.int(REGIONS_MIN, REGIONS_MAX);
   // Fixes : le bourg, le sanctuaire, les arènes et l'unique village imposé. Le « +1 »
   // paie la région supplémentaire réservée juste après au premier segment.
   const sauvages = Math.max(nombreArenes + 1, longueur - 3 - nombreArenes);
@@ -257,7 +264,7 @@ export function planifierMonde(seedText: string): {
   let numeroArene = 0;
   let numeroQualificatif = 0;
 
-  const plans = roles.map((role, index) => {
+  const plans: RegionPlan[] = roles.map((role, index) => {
     if (role === 'route') numeroRoute++;
     const qualificatif = qualificatifs[numeroQualificatif++ % qualificatifs.length]!;
     const nom =
@@ -283,6 +290,25 @@ export function planifierMonde(seedText: string): {
       typeArene: role === 'arene' ? typesArene[numeroArene++ % typesArene.length]! : undefined,
     } satisfies RegionPlan;
   });
+
+  // Le sanctuaire recueille ce que les biomes tirés n'offraient nulle part. Le calcul
+  // vient après la carte, puisqu'il la lit — et avant les starters, qui n'y changent rien.
+  // Seules comptent les régions qui sèment des zones de rencontre : une arène partage le
+  // biome des ruines sans jamais y faire apparaître la moindre créature.
+  const sanctuaire = plans.at(-1)!;
+  const complement = especesManquantes(
+    plans.map((plan) => ({
+      biome: plan.biome,
+      niveaux: plan.niveaux,
+      // Une arène partage le biome des ruines sans jamais y faire apparaître la moindre
+      // créature : seuls les rôles qui sèment des hautes herbes comptent.
+      fauneOrdinaire: ROLES_AVEC_FAUNE_ORDINAIRE.includes(plan.role),
+      peche: biomeAvecEau(plan.biome),
+    })),
+  );
+  if (complement.length > 0) {
+    plans[plans.length - 1] = { ...sanctuaire, complement };
+  }
 
   // Les starters se choisissent **après** le parcours : ils dépendent de ce qui peuple
   // la première région sauvage.
