@@ -35,9 +35,17 @@ import { SPECIES, SPECIES_IDS, STARTER_IDS, baseStatTotal, type SpeciesId } from
 import { creerMonde } from '../src/world/worldgen.ts';
 import { lireTuile, REGION_WIDTH, zonesAtteignables } from '../src/world/region.ts';
 import { TILES } from '../src/world/tiles.ts';
-import { tableRencontre, tirerRencontre } from '../src/world/encounters.ts';
+import { DAY_PHASES, tableRencontre, tirerRencontre } from '../src/world/encounters.ts';
+import { ROLES_AVEC_FAUNE_ORDINAIRE, biomeAvecEau } from '../src/world/region.ts';
+import { stockBoutique, type ItemId } from '../src/data/items.ts';
 
 const SEED = 'brume-3f7a';
+
+/** Un échantillon de seeds reproductible, comme dans les tests du générateur. */
+function seeds(nombre: number): string[] {
+  const rng = makeRng(20260807);
+  return Array.from({ length: nombre }, () => makeSeedText(rng.next()));
+}
 
 function nouvellePartie(): GameState {
   const state = creerPartie(SEED, 'fr', 'Testeur');
@@ -426,5 +434,129 @@ describe('cycle complet de sauvegarde', () => {
 
     expect(equipeHorsCombat(state)).toBe(false);
     expect(state.progression.dresseursVaincus).toContain('r1-dresseur-0');
+  });
+});
+
+/**
+ * La partie jouée d'un bout à l'autre, sans navigateur.
+ *
+ * Les tests ci-dessus éprouvent chacun un segment : le premier combat, le dernier
+ * champion, un aller-retour de sauvegarde. Celui-ci suit une partie entière — bourg,
+ * captures, arènes, sanctuaire — et vérifie à l'arrivée ce que le README promet : un
+ * Terradex complétable, des objets clés trouvables, et un état de créature jamais
+ * incohérent en chemin.
+ */
+describe('parcours complet', () => {
+  /** Tous les objets qu'une partie peut se procurer : ramassés au sol, ou en rayon. */
+  function objetsDisponibles(monde: ReturnType<typeof creerMonde>): Set<ItemId> {
+    const disponibles = new Set<ItemId>();
+    for (let index = 0; index < monde.plans.length; index++) {
+      for (const entite of monde.region(index).entites) {
+        if (entite.kind === 'objet') disponibles.add(entite.item);
+        // Un étal donne accès à tout ce qu'il vendra une fois le premier insigne obtenu.
+        if (entite.kind === 'service' && entite.service === 'boutique') {
+          for (const item of stockBoutique(1)) disponibles.add(item);
+        }
+      }
+    }
+    return disponibles;
+  }
+
+  it('rend trouvable chaque objet clé, dans n’importe quel monde', () => {
+    for (const seedText of seeds(30)) {
+      const disponibles = objetsDisponibles(creerMonde(seedText));
+      // La carte ouvre l'écran de carte, la canne la pêche, la pierre les évolutions
+      // qu'aucun niveau ne déclenche, le prisme royal les trois uniques du sanctuaire.
+      for (const requis of ['carte', 'canne', 'pierreEvolution', 'prismeRoyal'] as const) {
+        expect(disponibles.has(requis), `seed ${seedText} : ${requis} introuvable`).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * Le Terradex compte 40 espèces et l'annonce. Mesuré avant correction, il n'était
+   * complétable que dans un monde sur quatre : les biomes se tirent librement, et près
+   * d'un monde sur deux ne comporte aucune grotte.
+   */
+  it('laisse compléter le Terradex dans le monde tiré, capture et évolution comprises', () => {
+    for (const seedText of seeds(40)) {
+      const monde = creerMonde(seedText);
+      const attrapables = new Set<SpeciesId>();
+
+      for (const plan of monde.plans) {
+        const sanctuaire = plan.role === 'sanctuaire';
+        for (const phase of DAY_PHASES) {
+          if (ROLES_AVEC_FAUNE_ORDINAIRE.includes(plan.role)) {
+            for (const id of tableRencontre(plan.biome, phase, {
+              niveauMax: plan.niveaux.max,
+              uniques: sanctuaire,
+              complement: sanctuaire ? plan.complement : undefined,
+            })) {
+              attrapables.add(id);
+            }
+          }
+          if (biomeAvecEau(plan.biome)) {
+            for (const id of tableRencontre('riviere', phase, { niveauMax: plan.niveaux.max })) {
+              attrapables.add(id);
+            }
+          }
+        }
+      }
+
+      // Ce qu'on attrape mène à ce en quoi cela se transforme.
+      for (let ajout = true; ajout; ) {
+        ajout = false;
+        for (const id of [...attrapables]) {
+          const evolution = SPECIES[id].evolution;
+          if (evolution && !attrapables.has(evolution.vers)) {
+            attrapables.add(evolution.vers);
+            ajout = true;
+          }
+        }
+      }
+
+      expect(
+        SPECIES_IDS.filter((id) => !attrapables.has(id)),
+        `seed ${seedText} : espèces hors d'atteinte`,
+      ).toEqual([]);
+      expect(attrapables.size).toBe(SPECIES_IDS.length);
+    }
+  });
+
+  /**
+   * Une créature ne doit jamais afficher plus de points de vie qu'elle n'en a.
+   *
+   * Trois évolutions changent de courbe de croissance : l'expérience se relisait plus bas
+   * sur la nouvelle, et la créature gardait les points de vie de l'ancienne enveloppe —
+   * 113 sur 98 pour un Abyssarque. L'état ne se corrigeait qu'au prochain aller-retour de
+   * sauvegarde, en silence.
+   */
+  it('ne produit jamais d’état de créature incohérent en montant jusqu’au bout', () => {
+    const rng = makeRng(20260809);
+
+    for (const depart of SPECIES_IDS) {
+      let creature = creerCreature(rng, {
+        uid: `montee-${depart}`,
+        speciesId: depart,
+        niveau: 2,
+        origine: 'test',
+      });
+
+      // Assez d'expérience pour traverser toute la lignée, par petits paliers : c'est
+      // dans le pas qui suit une évolution que le défaut se manifestait.
+      for (let palier = 0; palier < 120; palier++) {
+        const gain = gagnerExperience(creature, 900);
+        expect(creature.pv, `${creature.speciesId} au palier ${palier}`).toBeLessThanOrEqual(
+          pvMax(creature),
+        );
+        expect(gain.niveauApres, `${creature.speciesId} ne redescend pas`).toBeGreaterThanOrEqual(
+          gain.niveauAvant,
+        );
+        if (gain.evolution) {
+          creature = evoluer(creature, gain.evolution);
+          expect(creature.pv, `${depart} juste après évolution`).toBeLessThanOrEqual(pvMax(creature));
+        }
+      }
+    }
   });
 });
