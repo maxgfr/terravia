@@ -301,6 +301,35 @@ describe('écran-titre', () => {
     expect(appelsDessin).toBeGreaterThan(10);
   });
 
+  /**
+   * L'écran de choix du starter n'avait aucune sortie — ni Échap, ni équivalent souris ou
+   * tactile — contrairement à l'écran de seed juste avant lui. Et `chargerPartie` a déjà
+   * remplacé l'état par une partie neuve : on ne pouvait plus qu'aller de l'avant ou
+   * recharger la page.
+   */
+  it('laisse revenir de l’écran des starters à celui de la seed', async () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneTitre('brume-3f7a'));
+
+    await banc.agir('valider', 2); // Nouvelle partie → écran de seed
+    await banc.agir('sud', 2); // aller sur « Commencer »
+    await banc.agir('valider', 2); // → choix du starter
+
+    const dessine = (): string => {
+      textesDessines = [];
+      banc.trame();
+      return textesDessines.join(' ');
+    };
+    expect(dessine(), 'on est bien sur le choix du starter').toContain(
+      banc.jeu.t('depart.question'),
+    );
+
+    await banc.agir('annuler', 2);
+    expect(dessine(), 'retour à l’écran de seed').toContain(banc.jeu.t('titre.commencer'));
+    // Aucune créature n'a été retenue au passage.
+    expect(banc.jeu.state.equipe).toHaveLength(0);
+  });
+
   it('mène de l’écran-titre au monde en passant par le choix du starter', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneTitre('brume-3f7a'));
@@ -1498,6 +1527,23 @@ describe('repérage des services', () => {
 });
 
 describe('encyclopédie', () => {
+  /**
+   * L'encyclopédie était le seul écran de lecture qu'on ne pouvait pas fermer à la
+   * souris : la carte, l'aide et les fiches acceptent toutes un clic. Ici le clic nu
+   * appartient déjà aux onglets et à la liste, d'où une croix explicite — que sa propre
+   * ligne d'aide promettait pourtant depuis le début en ne citant qu'Échap.
+   */
+  it('se ferme d’un clic sur sa croix, et pas seulement au clavier', () => {
+    const banc = creerBanc();
+    banc.jeu.pousser(new SceneEncyclopedie());
+    banc.trame();
+    expect(banc.jeu.sommet?.nom).toBe('encyclopedie');
+
+    banc.entrees.cliquer(VIRTUAL_WIDTH - 14, 15);
+    banc.trame();
+    expect(banc.jeu.sommet?.nom).not.toBe('encyclopedie');
+  });
+
   /**
    * Le Terradex ne montre que ce qu'on a rencontré, et c'est son intérêt. Restait sans
    * réponse : quelles attaques existent, à quoi sert cet objet, où trouver de quoi

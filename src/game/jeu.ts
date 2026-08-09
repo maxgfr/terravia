@@ -35,8 +35,8 @@ export interface Scene {
   /**
    * Appelé sur toute la pile juste avant une écriture de la partie : la scène y dépose
    * ce qu'elle est seule à connaître. Le combat s'en sert pour enregistrer l'échange en
-   * cours, si bien qu'une sauvegarde déclenchée à n'importe quel instant — un écran de
-   * réglages ouvert par-dessus, la fermeture de l'onglet — le capte tel qu'il est.
+   * cours, si bien qu'une sauvegarde déclenchée à n'importe quel instant — l'écriture
+   * périodique, la fermeture de l'onglet — le capte tel qu'il est.
    */
   avantSauvegarde?(jeu: Jeu): void;
   /** Une scène opaque dispense de dessiner celles du dessous. */
@@ -224,9 +224,9 @@ export class Jeu {
    */
   documentDePartie(): SaveFile | null {
     if (this.state.equipe.length === 0) return null;
-    // Toute la pile est consultée, pas seulement son sommet : ouvrir les réglages pendant
-    // un combat les pose par-dessus lui, et c'est le combat, plus bas, qui a quelque
-    // chose à déposer.
+    // Toute la pile est consultée, pas seulement son sommet : un écran ouvert par-dessus
+    // un combat — l'encyclopédie, par exemple — le laisse plus bas dans la pile, et c'est
+    // lui qui a quelque chose à déposer.
     for (const scene of this.pile) scene.avantSauvegarde?.(this);
     return exporterPartie(this.state, new Date().toISOString());
   }

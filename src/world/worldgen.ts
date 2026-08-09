@@ -341,9 +341,6 @@ export function creerMonde(seedText: string): World {
   };
 }
 
-/** L'index de la région où commence toute partie. */
-export const REGION_DEPART = 0;
-
 /** Le badge décerné par l'arène d'un type donné. */
 export function badgeDe(type: ElementType): string {
   return `badge:${type}`;

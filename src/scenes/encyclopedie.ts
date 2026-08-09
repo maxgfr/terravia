@@ -63,8 +63,21 @@ export class SceneEncyclopedie implements Scene {
     if (jeu.entrees.pressee('sud')) this.selection = (this.selection + 1) % total;
     if (jeu.entrees.pressee('nord')) this.selection = (this.selection - 1 + total) % total;
 
+    this.viserFermeture(jeu);
     this.viserOnglets(jeu);
     this.viserListe(jeu, total);
+  }
+
+  /**
+   * La croix de fermeture, en haut à droite.
+   *
+   * L'encyclopédie était le seul écran de lecture qu'on ne pouvait pas quitter à la
+   * souris — la carte, l'aide, la fiche d'une créature acceptent tous un clic nu. Ici un
+   * clic nu ne peut pas servir : il appartient déjà aux onglets et à la liste. D'où une
+   * cible explicite, que le compteur laisse la place de dessiner.
+   */
+  private viserFermeture(jeu: Jeu): void {
+    if (jeu.clique(VIRTUAL_WIDTH - 22, 8, 16, 16)) jeu.retirer();
   }
 
   /** Les trois rayons se cliquent comme des onglets, à leur largeur réelle de texte. */
@@ -121,8 +134,11 @@ export class SceneEncyclopedie implements Scene {
       });
       x += peintre.largeurTexte(libelle) + 12;
     });
-    peintre.texteDroite(`${this.selection + 1}/${this.entrees.length}`, VIRTUAL_WIDTH - 16, 13, {
+    peintre.texteDroite(`${this.selection + 1}/${this.entrees.length}`, VIRTUAL_WIDTH - 26, 13, {
       couleur: COULEURS.texteAttenue,
+    });
+    peintre.texte('×', VIRTUAL_WIDTH - 18, 13, {
+      couleur: jeu.survole(VIRTUAL_WIDTH - 22, 8, 16, 16) ? COULEURS.texteAccent : COULEURS.texteAttenue,
     });
 
     const colonne = Math.min(150, Math.floor(VIRTUAL_WIDTH * 0.42));

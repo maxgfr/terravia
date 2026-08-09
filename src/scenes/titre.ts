@@ -188,6 +188,18 @@ export class SceneTitre implements Scene {
 
   private choixStarter(jeu: Jeu): void {
     const starters = this.starters(jeu);
+
+    // Une sortie, comme sur l'écran de seed. Il n'y en avait aucune : ni au clavier, ni à
+    // la souris, ni au doigt. On ne pouvait quitter cet écran qu'en choisissant une
+    // créature ou en rechargeant la page — alors que `chargerPartie` a déjà remplacé
+    // l'état par une partie neuve.
+    if (jeu.entrees.pressee('annuler')) {
+      jeu.chargerPartie(creerPartie(this.seedProposee, jeu.langue));
+      this.ecran = 'seed';
+      this.selection = 0;
+      return;
+    }
+
     if (jeu.entrees.pressee('est')) this.selection = (this.selection + 1) % starters.length;
     if (jeu.entrees.pressee('ouest')) {
       this.selection = (this.selection - 1 + starters.length) % starters.length;
@@ -334,6 +346,12 @@ export class SceneTitre implements Scene {
       const type = SPECIES[species].types[0];
       peintre.plaqueType(type, jeu.nomType(type), x + 32 - peintre.largeurPlaque / 2, 150);
       if (choisi) peintre.contour(x - 4, 66, 72, 100, COULEURS.selection);
+    });
+
+    // La même mention que sur l'écran de seed : la sortie existe, encore faut-il le dire.
+    peintre.texteCentre(jeu.t('titre.retour'), VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 16, {
+      couleur: COULEURS.texteAttenue,
+      ombre: true,
     });
   }
 }

@@ -68,11 +68,6 @@ export interface Panneau extends EntiteBase {
 
 export type Entite = Pnj | Dresseur | ObjetAuSol | Service | Panneau;
 
-/** Les entités qui occupent physiquement leur case et bloquent le passage. */
-export function bloquePassage(entite: Entite): boolean {
-  return entite.kind !== 'objet' && entite.kind !== 'panneau';
-}
-
 /** Identifiant stable, dérivé de la région et d'un compteur local. */
 export function entiteId(region: number, kind: string, compteur: number): string {
   return `r${region}-${kind}-${compteur}`;

@@ -59,6 +59,9 @@ function cotePoint(hauteurRegion: number): number {
 
 export class SceneCarte implements Scene {
   readonly nom = 'carte';
+  // Elle peint tout le cadre : sans ce drapeau, le monde et le menu étaient redessinés
+  // dessous à chaque trame, pour être aussitôt recouverts.
+  readonly opaque = true;
 
   private clignotement = 0;
 

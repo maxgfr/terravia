@@ -14,9 +14,9 @@ opens the sanctum, where the creatures that appear nowhere else can finally be c
 
 | | |
 |---|---|
-| **Keyboard** | Arrows or WASD to move · `Enter` / `E` to talk, read, pick up · `Escape` or `M` for the menu |
+| **Keyboard** | Arrows, WASD or ZQSD (AZERTY) to move · `Enter`, `Space` or `E` to talk, read, pick up · `Escape`, `Backspace` or `M` for the menu |
 | **Mouse** | Click a tile and the walk there happens on its own, around whatever is in the way · click a character or the water to go over and interact · click any row, creature or attack to pick it |
-| **Touch** | A D-pad and two buttons appear on devices without a mouse |
+| **Touch** | A D-pad plus menu, back and confirm appear on any device with a touchscreen |
 | **Settings** | Language, help and the encyclopedia sit directly in the title screen and the pause menu |
 
 The interface is available in English and French. English is the default; French is a
@@ -45,7 +45,7 @@ have drifted.
 
 ## Content
 
-40 creatures across 17 evolution lines · 12 elemental types with four immunities ·
+40 creatures across 22 evolution lines · 12 elemental types with four immunities ·
 53 moves · 16 passive talents · 8 to 12 regions per run · two or three arenas · a
 day/night cycle that changes which creatures appear · fishing, once you find the rod.
 
@@ -60,14 +60,21 @@ champion falls.
 
 ```bash
 npm install
-npm run dev        # development server
+npm run dev        # development server, served at /terravia/
 npm test           # test suite
-npm run art        # regenerate the sprites into public/art/
+npm run art        # regenerate the sprites into public/art/ and the app icons
 npm run build      # typecheck + production build
 ```
 
-Node 22.6+ is required: the art tools are written in TypeScript and executed directly by
-Node, with no compilation step and no dependencies.
+The base path is set unconditionally, so `npm run dev` serves the game at
+`http://localhost:5173/terravia/` — not at the root.
+
+Node 22.6+ is required (CI pins the version in `.nvmrc`): the art tools are written in
+TypeScript and executed directly by Node, with no compilation step and no dependencies.
+
+**Terravia ships zero runtime dependencies.** `package.json` has no `dependencies` block
+at all — the whole game is 210 kB of hand-written JavaScript, 64 kB gzipped, plus 68 kB of
+generated PNGs. It registers a service worker, so once opened it keeps working offline.
 
 ## How the code is organised
 
@@ -89,9 +96,9 @@ identically.
 
 The game saves itself in your browser as you play. From the menu you can export it as a
 JSON file and import it back — by file picker, by dropping the file anywhere on the page,
-or by pasting raw JSON. An invalid import shows the precise error (`unknown move:
-frostbolt`) and **never overwrites the game in progress**: a confirmation screen
-summarises the save first. A migration registry is in place from version 1, so the format
+or by pasting raw JSON from the clipboard. An invalid import shows the precise error
+(`equipe[0].moves[0].id: unknown value « frostbolt »`) **in your language**, and **never
+overwrites the game in progress**: a confirmation screen summarises the save first. A migration registry is in place from version 1, so the format
 can evolve without breaking existing games.
 
 You can also export a single creature — you pick which one — and import it into another
@@ -106,7 +113,7 @@ Dropping a file on the page stays permissive and sorts the two out on its own.
 
 ## Tests
 
-321 tests, run in continuous integration before every deploy. The useful ones don't check
+351 tests, run in continuous integration before every deploy. The useful ones don't check
 details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;
@@ -114,11 +121,12 @@ details, they check **invariants** — which matters more now that the world its
   last, arenas spaced apart with distinct specialities, no cave as the opening region,
   levels that never go backwards — checked over 120 seeds;
 - **every starter is viable on its own first route** — none is countered by the local
-  fauna, and none is too frail to trade blows, measured over 30 worlds;
+  fauna, and none is too frail to trade blows, measured over 60 worlds;
 - no region shows a creature out of proportion with its level, and none shows so few
   species that it feels repetitive;
-- every species in the Terradex is catchable somewhere, so its counter never promises a
-  total you cannot reach;
+- **every species in the Terradex is catchable in the world you were actually given** —
+  checked on 120 generated worlds rather than on the union of every biome, which no single
+  run contains. The sanctum takes in whatever the drawn biomes left out;
 - **the last champion falls in over 90 % of worlds** to a level-appropriate team of six,
   and still beats one that stayed ten levels behind — measured by simulating the whole
   trainer battle against the champion the world actually generated;
@@ -127,7 +135,9 @@ details, they check **invariants** — which matters more now that the world its
   lineages still contribute their middle stages;
 - fishing brings up river fauna and only with the rod; the Waking Stone evolves the
   creature you point it at and refuses when none can; the map screen stays shut until
-  you find the map;
+  you find the map; no key item is ever handed out twice in one run;
+- the game loop stops at the first exception instead of replaying it sixty times a
+  second, and a type immunity holds against status moves, not only against damage;
 - a battle interrupted by closing the tab comes back exactly as it was;
 - a click walks the player to the tile, around whatever blocks the straight line, and
   stops beside a character to talk instead of on top of them;
@@ -149,11 +159,25 @@ outside the frame fails the build instead of shipping.
 
 - **No building interiors.** Doors are scenery and services keep an outdoor stall.
   Modelling interiors would have doubled the world code for little gain.
-- **No pixel-perfect scaling on phones.** The canvas scales by whole numbers on an
-  ordinary display, so pixels stay square. On a high-density one it does not: rounding
-  down cost a third of the content size, and at three physical pixels per CSS pixel the
+- **No pixel-perfect scaling on phones.** The canvas scales by whole numbers whenever
+  there is room, so pixels stay square. It drops to fractional scaling in two cases: on a
+  high-density display, and on a screen too small to fit a whole factor. Rounding down
+  cost a third of the content size, and at three physical pixels per CSS pixel the
   irregularity is invisible where the lost legibility was not.
 - **Trading is trust-based**, as described above.
+- **Battle termination is sampled, not proven.** 40 of the 1 600 possible species pairs are
+  run to completion. A pair with no effective move either way — an all-Neutral moveset
+  against a pure Shade creature — still ends, but only once both sides run out of PP and
+  fall back on Struggle, which takes around ninety turns.
+- **Save import trusts the clipboard and the file, not the network.** There is no network:
+  the only untrusted input is a document you hand the game yourself, and it goes through a
+  hand-written validator that never evaluates what it reads.
+
+## Design notes
+
+The original design spec — the constraints, the decisions and why each was taken — lives
+in [`docs/specs/2026-08-07-terravia-design.md`](docs/specs/2026-08-07-terravia-design.md).
+It predates several of the numbers above; the code is the authority.
 
 ## Licence
 

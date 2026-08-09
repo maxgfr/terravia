@@ -35,14 +35,6 @@ export function lireSauvegardeLocale(): string | null {
   }
 }
 
-export function effacerSauvegardeLocale(): void {
-  try {
-    localStorage.removeItem(CLE_AUTOSAVE);
-  } catch {
-    /* rien à faire : l'absence de stockage n'est pas une erreur */
-  }
-}
-
 export function lireLanguePreferee(): string | null {
   try {
     return localStorage.getItem(CLE_LANGUE);

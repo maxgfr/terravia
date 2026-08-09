@@ -138,6 +138,8 @@ const FR = {
   'sauvegarde.pasDePartie': 'Commencez une partie avant d’accueillir une créature.',
   'sauvegarde.creatureImportee': '{nom} rejoint votre équipe.',
   'sauvegarde.creatureEnReserve': '{nom} rejoint votre réserve.',
+  'sauvegarde.coller': 'Coller depuis le presse-papiers',
+  'sauvegarde.pressePapiersVide': 'Le presse-papiers est vide, ou le navigateur en refuse la lecture.',
   'sauvegarde.deposer': 'Déposez un fichier de sauvegarde n’importe où sur la page.',
 
   // Motifs de rejet d'un fichier importé. Le « chemin » est un repère technique dans le
@@ -241,7 +243,7 @@ const FR = {
   'encyclopedie.creatures': 'Créatures',
   'encyclopedie.attaques': 'Attaques',
   'encyclopedie.objets': 'Objets',
-  'encyclopedie.aide': '◀ ▶ rayon · ▲ ▼ parcourir · Échap : fermer',
+  'encyclopedie.aide': '◀ ▶ rayon · ▲ ▼ parcourir · Échap ou × : fermer',
   'encyclopedie.puissanceTotale': 'Puissance',
   'encyclopedie.evolue': 'Évolue en {espece} au niveau {niveau}',
   'encyclopedie.lignéeFinale': 'Dernier stade de sa lignée',
@@ -462,6 +464,8 @@ const EN: Record<CleTexte, string> = {
   'sauvegarde.pasDePartie': 'Start a game before taking in a creature.',
   'sauvegarde.creatureImportee': '{nom} joins your team.',
   'sauvegarde.creatureEnReserve': '{nom} joins your storage.',
+  'sauvegarde.coller': 'Paste from clipboard',
+  'sauvegarde.pressePapiersVide': 'The clipboard is empty, or the browser refuses to read it.',
   'sauvegarde.deposer': 'Drop a save file anywhere on the page.',
 
   'sauvegarde.motif.objet': '{chemin} should be an object',
@@ -558,7 +562,7 @@ const EN: Record<CleTexte, string> = {
   'encyclopedie.creatures': 'Creatures',
   'encyclopedie.attaques': 'Moves',
   'encyclopedie.objets': 'Items',
-  'encyclopedie.aide': '◀ ▶ shelf · ▲ ▼ browse · Escape: close',
+  'encyclopedie.aide': '◀ ▶ shelf · ▲ ▼ browse · Escape or ×: close',
   'encyclopedie.puissanceTotale': 'Power',
   'encyclopedie.evolue': 'Evolves into {espece} at level {niveau}',
   'encyclopedie.lignéeFinale': 'Last stage of its line',

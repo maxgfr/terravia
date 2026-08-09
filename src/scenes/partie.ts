@@ -1,9 +1,9 @@
 /**
  * Entrer dans une partie : la reprendre, ou en accueillir une venue d'un fichier.
  *
- * Ces deux opérations vivent ici plutôt que dans un écran, parce que trois écrans les
- * appellent — le titre, le menu de pause et les réglages — et qu'un module partagé évite
- * le cycle d'imports qui naîtrait à les loger dans l'un d'eux.
+ * Ces deux opérations vivent ici plutôt que dans un écran, parce que l'écran-titre comme
+ * le menu de pause les appellent, et qu'un module partagé évite le cycle d'imports qui
+ * naîtrait à les loger dans l'un d'eux.
  */
 
 import type { Jeu } from '../game/jeu.ts';
@@ -48,6 +48,16 @@ export function entrerDansLaPartie(jeu: Jeu): void {
         | Dresseur
         | undefined)
     : undefined;
+
+  // Un dresseur introuvable — région renumérotée, format qui a bougé — vidait le combat
+  // de tout enjeu **en silence** : ni pièces, ni dresseur marqué vaincu, ni insigne, ni
+  // drapeau de victoire, pendant que l'IA retombait au niveau d'un dresseur de route. On
+  // préfère abandonner la reprise : le champion est toujours là, et se réaffronte.
+  if (combat.dresseurId && !dresseur) {
+    jeu.state.combat = null;
+    console.warn(`Combat repris sans son dresseur (${combat.dresseurId}) : reprise abandonnée.`);
+    return;
+  }
 
   jeu.pousser(
     new SceneCombat(

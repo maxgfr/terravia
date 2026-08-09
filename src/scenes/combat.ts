@@ -524,7 +524,7 @@ export class SceneCombat implements Scene {
           typeof talent === 'string' && talent in TALENTS
             ? { ...params, talent: jeu.nomTalent(talent as TalentId) }
             : params;
-        return jeu.t(evenement.cle as never, lisibles);
+        return jeu.t(evenement.cle, lisibles);
       }
       case 'attaque':
         return jeu.t('combat.utilise', {
@@ -536,12 +536,12 @@ export class SceneCombat implements Scene {
       case 'degats': {
         if (evenement.palier === 'neutral') return evenement.critique ? jeu.t('combat.critique') : null;
         const cle = `combat.efficace.${evenement.palier}` as const;
-        return jeu.t(cle as never);
+        return jeu.t(cle);
       }
       case 'soin':
         return jeu.t('combat.soin', { nom: nomDe(evenement.cible) });
       case 'statut':
-        return jeu.t(`combat.statut.${evenement.statut}` as never, { nom: nomDe(evenement.cible) });
+        return jeu.t(`combat.statut.${evenement.statut}`, { nom: nomDe(evenement.cible) });
       case 'statutDissipe':
         return jeu.t('combat.dissipe', { nom: nomDe(evenement.cible) });
       case 'stat':
@@ -550,7 +550,7 @@ export class SceneCombat implements Scene {
           stat: STAT_NAMES[evenement.stat][jeu.langue],
         });
       case 'immobilise':
-        return jeu.t(`combat.immobilise.${evenement.cause}` as never, { nom: nomDe(evenement.acteur) });
+        return jeu.t(`combat.immobilise.${evenement.cause}`, { nom: nomDe(evenement.acteur) });
       case 'ko':
         return jeu.t('combat.ko', { nom: nomDe(evenement.cible) });
       case 'objet':

@@ -598,6 +598,7 @@ export class SceneOverworld implements Scene {
         break;
 
       case 'objet':
+        // Un objet au sol se ramasse en marchant dessus, pas en lui parlant.
         break;
     }
   }

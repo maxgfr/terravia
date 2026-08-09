@@ -21,6 +21,9 @@ import { COULEURS } from '../ui/draw.ts';
 import { viser } from '../ui/liste.ts';
 import { SceneTitre } from './titre.ts';
 
+/** Reprendre la partie, ou repartir sur une autre seed. */
+const OPTIONS = 2;
+
 export class SceneFin implements Scene {
   readonly nom = 'fin';
   readonly opaque = true;
@@ -35,15 +38,17 @@ export class SceneFin implements Scene {
       return;
     }
 
-    if (jeu.entrees.pressee('sud')) this.selection = (this.selection + 1) % 2;
-    if (jeu.entrees.pressee('nord')) this.selection = (this.selection + 1) % 2;
+    // `nord` remonte, `sud` descend. Les deux incrémentaient — sans conséquence tant
+    // qu'il n'y a que deux entrées, faux dès la troisième.
+    if (jeu.entrees.pressee('sud')) this.selection = (this.selection + 1) % OPTIONS;
+    if (jeu.entrees.pressee('nord')) this.selection = (this.selection - 1 + OPTIONS) % OPTIONS;
 
     const { survol, valide } = viser(jeu.entrees, {
       x: 28,
       largeur: VIRTUAL_WIDTH - 56,
       y: 153,
       pas: 14,
-      lignes: 2,
+      lignes: OPTIONS,
     });
     if (survol !== null) this.selection = survol;
     if (!jeu.entrees.pressee('valider') && !valide) return;

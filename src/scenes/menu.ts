@@ -30,7 +30,7 @@ import {
   utiliserObjetSur,
 } from '../game/state.ts';
 import { exporterCreature, exporterPartie, nomFichier } from '../save/serialize.ts';
-import { choisirFichier, telecharger } from '../save/storage.ts';
+import { choisirFichier, lirePressePapiers, telecharger } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
 import { viser, type Colonne } from '../ui/liste.ts';
 import { makeSeedText } from '../core/rng.ts';
@@ -38,7 +38,7 @@ import { SceneCarte } from './carte.ts';
 import { SceneAide } from './aide.ts';
 import { SceneEncyclopedie } from './encyclopedie.ts';
 import { SceneTitre } from './titre.ts';
-import { importerCreatureSeule, importerPartieSeule } from './partie.ts';
+import { importerCreatureSeule, importerPartieSeule, traiterImport } from './partie.ts';
 
 /** Lignes de réserve affichées d'un coup dans la colonne de droite, selon la place. */
 function lignesReserve(): number {
@@ -116,6 +116,10 @@ export const ENTREES_SAUVEGARDE = [
   'sauvegarde.maintenant',
   'sauvegarde.exporter',
   'sauvegarde.importer',
+  // Le README promettait l'import « en collant du JSON brut » depuis le début, et le
+  // lecteur de presse-papiers existait — appelé de nulle part. C'est la seule voie
+  // d'entrée quand on reçoit une sauvegarde dans un message plutôt qu'en pièce jointe.
+  'sauvegarde.coller',
   'sauvegarde.exporterCreature',
   'sauvegarde.importerCreature',
   'menu.retour',
@@ -372,7 +376,7 @@ export class SceneMenu implements Scene {
     // On applique sur la première créature que l'objet peut réellement aider : proposer
     // une cible qui n'en a pas besoin gaspillerait l'objet.
     const cible = jeu.state.equipe.find(
-      (membre) => utiliserObjetSurEssai(jeu, choisi.item, membre),
+      (membre) => utiliserObjetSurEssai(choisi.item, membre),
     );
     if (!cible) {
       jeu.dialogue.dire(jeu.t('menu.vide'));
@@ -502,6 +506,9 @@ export class SceneMenu implements Scene {
       case 'sauvegarde.importer':
         void this.choisirEtImporter(jeu, importerPartieSeule);
         break;
+      case 'sauvegarde.coller':
+        void this.collerEtImporter(jeu);
+        break;
       case 'sauvegarde.exporterCreature':
         this.exporterUneCreature(jeu);
         break;
@@ -511,6 +518,21 @@ export class SceneMenu implements Scene {
       default:
         this.aller('racine');
     }
+  }
+
+  /**
+   * Lit le presse-papiers et le traite comme un fichier déposé.
+   *
+   * `traiterImport` trie lui-même partie et créature : coller n'a pas à choisir sa porte,
+   * pas plus que déposer un fichier sur la page.
+   */
+  private async collerEtImporter(jeu: Jeu): Promise<void> {
+    const contenu = await lirePressePapiers();
+    if (contenu === null || contenu.trim().length === 0) {
+      jeu.dialogue.dire(jeu.t('sauvegarde.pressePapiersVide'));
+      return;
+    }
+    traiterImport(jeu, contenu);
   }
 
   /** Ouvre le sélecteur de fichiers, et confie ce qu'on en tire à la porte annoncée. */
@@ -938,12 +960,11 @@ export class SceneMenu implements Scene {
 }
 
 /** Vrai si l'objet aurait un effet sur cette créature — sans le consommer. */
-function utiliserObjetSurEssai(jeu: Jeu, item: keyof typeof ITEMS, cible: CreatureInstance): boolean {
+function utiliserObjetSurEssai(item: keyof typeof ITEMS, cible: CreatureInstance): boolean {
   const effet = ITEMS[item].effet;
   if (effet.kind === 'soin') return cible.pv > 0 && cible.pv < pvMax(cible);
   if (effet.kind === 'guerison') {
     return cible.statut !== null && (effet.statut === 'tout' || effet.statut === cible.statut);
   }
-  void jeu;
   return false;
 }

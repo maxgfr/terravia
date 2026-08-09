@@ -12,6 +12,7 @@
  */
 
 import type { Rng } from '../core/rng.ts';
+import type { CleTexte } from '../i18n/index.ts';
 import { ITEMS, type ItemId } from '../data/items.ts';
 import { MOVES, type Move, type MoveId } from '../data/moves.ts';
 import type { BattleStat, StatusId } from '../data/stats.ts';
@@ -31,9 +32,16 @@ import {
 
 export type Cote = 'joueur' | 'adversaire';
 
+/** Les altérations qui font perdre un tour. */
+export type StatutImmobilisant = Extract<StatusId, 'sommeil' | 'gel' | 'paralysie'>;
+
 export type BattleEvent =
-  /** Texte à afficher. `cle` désigne une entrée du catalogue de traductions. */
-  | { readonly type: 'message'; readonly cle: string; readonly params?: Record<string, string | number> }
+  /**
+   * Texte à afficher. La clé est typée contre le catalogue : l'écran de combat la
+   * transmettait par un `as never`, ce qui désarmait le compilateur sur la seule famille
+   * de clés que le moteur construit à l'exécution.
+   */
+  | { readonly type: 'message'; readonly cle: CleTexte; readonly params?: Record<string, string | number> }
   | { readonly type: 'attaque'; readonly acteur: Cote; readonly move: MoveId }
   | { readonly type: 'rate'; readonly acteur: Cote }
   | {
@@ -48,7 +56,12 @@ export type BattleEvent =
   | { readonly type: 'statut'; readonly cible: Cote; readonly statut: StatusId }
   | { readonly type: 'statutDissipe'; readonly cible: Cote; readonly statut: StatusId }
   | { readonly type: 'stat'; readonly cible: Cote; readonly stat: BattleStat; readonly etages: number }
-  | { readonly type: 'immobilise'; readonly acteur: Cote; readonly cause: StatusId }
+  /**
+   * Une altération empêche d'agir. Seules trois le font : la brûlure et le poison
+   * rongent, ils ne paralysent pas. Le type l'énonce, faute de quoi une clé
+   * `combat.immobilise.brulure` — qui n'existe pas au catalogue — serait exprimable.
+   */
+  | { readonly type: 'immobilise'; readonly acteur: Cote; readonly cause: StatutImmobilisant }
   | { readonly type: 'ko'; readonly cible: Cote }
   | { readonly type: 'objet'; readonly item: ItemId }
   | { readonly type: 'capture'; readonly secousses: number; readonly reussi: boolean }
@@ -413,8 +426,7 @@ function appliquerEffet(
 }
 
 /** Dégâts et soins de fin de tour : altérations, régénération. */
-function finDeTour(state: BattleState, rng: Rng, evenements: BattleEvent[]): void {
-  void rng;
+function finDeTour(state: BattleState, evenements: BattleEvent[]): void {
   for (const cote of ['joueur', 'adversaire'] as const) {
     const acteur = combattant(state, cote);
     if (acteur.instance.pv <= 0) continue;
@@ -547,7 +559,7 @@ export function resoudreTour(
   }
 
   if (state.joueur.instance.pv > 0 && state.adversaire.instance.pv > 0) {
-    finDeTour(state, rng, evenements);
+    finDeTour(state, evenements);
   }
 
   verifierKo(state, evenements);
