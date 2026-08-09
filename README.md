@@ -173,12 +173,6 @@ outside the frame fails the build instead of shipping.
   the only untrusted input is a document you hand the game yourself, and it goes through a
   hand-written validator that never evaluates what it reads.
 
-## Design notes
-
-The original design spec — the constraints, the decisions and why each was taken — lives
-in [`docs/specs/2026-08-07-terravia-design.md`](docs/specs/2026-08-07-terravia-design.md).
-It predates several of the numbers above; the code is the authority.
-
 ## Licence
 
 MIT for the code. Creatures, names, designs and setting are original, same licence.
