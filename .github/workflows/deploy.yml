@@ -15,8 +15,7 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
-# Le droit de publier n'est accordé qu'au job qui publie. Le job de build, lui, ne fait
-# que lire le dépôt.
+# Rien n'est accordé à l'échelle du workflow : chaque job demande ce dont il a besoin.
 permissions:
   contents: read
 
@@ -25,6 +24,12 @@ jobs:
     name: Tests et build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # `configure-pages` interroge l'API Pages : lui retirer ce droit ferait échouer le
+    # build avant même d'avoir quelque chose à publier. Le jeton d'identité, lui, ne sert
+    # qu'à `deploy-pages`, et reste donc en bas.
+    permissions:
+      contents: read
+      pages: write
     steps:
       - uses: actions/checkout@v4
 
