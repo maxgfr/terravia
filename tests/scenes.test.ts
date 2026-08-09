@@ -48,7 +48,7 @@ import { PAGES_AIDE, SceneAide } from '../src/scenes/aide.ts';
 import { SceneCarte } from '../src/scenes/carte.ts';
 import { SceneFin } from '../src/scenes/fin.ts';
 import { SceneEncyclopedie } from '../src/scenes/encyclopedie.ts';
-import { MOVE_IDS } from '../src/data/moves.ts';
+import { MOVE_IDS, MOVES } from '../src/data/moves.ts';
 import { LANGUES } from '../src/i18n/index.ts';
 import { entrerDansLaPartie } from '../src/scenes/partie.ts';
 import { chargerDepuisTexte, exporterPartie } from '../src/save/serialize.ts';
@@ -1014,6 +1014,89 @@ describe('animations de combat', () => {
       banc.trame();
     }
     expect(banc.jeu.sommet?.nom).toBe('overworld');
+  });
+
+  /**
+   * Le doute soulevé en jouant : « on dirait que mes attaques me font des dégâts ».
+   *
+   * Le moteur est net — un bloc de `battle.test.ts` l'établit sur les cinquante-trois
+   * attaques. Restait l'écran : il empilait les répliques d'un tour dans la file, mais
+   * déclenchait les secousses tout de suite, dans la boucle d'empilement. Seule la
+   * dernière survivait, et elle jouait pendant que la première réplique s'affichait —
+   * notre créature tremblait donc à l'écran sous le texte « Zephyrion utilise Ruade ».
+   */
+  it('secoue celui que vise l’attaque annoncée, pas un autre', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(101), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'zephyrion',
+        niveau: 30,
+        origine: 'brume-3f7a',
+      }),
+    );
+    // Une attaque faible contre une créature endurante : les deux survivent au tour, et
+    // chacune frappe donc une fois.
+    banc.jeu.state.equipe[0]!.moves = [{ id: 'ruade', pp: 20 }];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(102), {
+            uid: 'sauvage-b',
+            speciesId: 'menhirok',
+            niveau: 30,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    // Menu d'actions → liste d'attaques → première attaque.
+    banc.entrees.presser('valider');
+    banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+
+    const scene = banc.jeu.sommet as unknown as { coteFrappe: string | null };
+    const dialogue = banc.jeu.dialogue as unknown as { courant: string | null };
+    const nomJoueur = banc.jeu.nomCreature(banc.jeu.state.equipe[0]!);
+
+    // On suit le tour réplique par réplique. À chaque fois que la secousse change de
+    // camp, elle doit tomber sur celui qui *encaisse* la dernière attaque annoncée —
+    // jamais sur celui qui l'a lancée.
+    // Le début d'une réplique d'attaque, reconstruit depuis le modèle traduit plutôt
+    // que deviné : le test reste juste dans les deux langues.
+    const modele = banc.jeu.t('combat.utilise', { nom: '\u0001', attaque: '\u0002' });
+    const debutAttaque = (nom: string): string => modele.replace('\u0001', nom).split('\u0002')[0]!;
+    const nomAdverse = banc.jeu.nomCreature(banc.jeu.state.combat!.adversaires[0]!);
+
+    let attaquant: string | null = null;
+    let secousse = scene.coteFrappe;
+    let verifications = 0;
+
+    for (let i = 0; i < 400 && banc.jeu.dialogue.actif; i++) {
+      const texte = dialogue.courant ?? '';
+      if (texte.startsWith(debutAttaque(nomJoueur))) attaquant = 'joueur';
+      else if (texte.startsWith(debutAttaque(nomAdverse))) attaquant = 'adversaire';
+      if (scene.coteFrappe !== secousse) {
+        secousse = scene.coteFrappe;
+        if (attaquant && secousse) {
+          expect(secousse, `« ${texte} » ne doit pas secouer le camp qui attaque`).not.toBe(attaquant);
+          verifications += 1;
+        }
+      }
+      banc.entrees.presser('valider');
+      banc.trame();
+    }
+    expect(verifications, 'le tour doit avoir annoncé notre attaque').toBeGreaterThan(0);
   });
 
   it('fait rattraper la barre de vie au lieu de la faire sauter', () => {
@@ -2395,6 +2478,58 @@ describe('pointeur', () => {
     expect(banc.jeu.dialogue.actif).toBe(false);
   });
 
+  it('affiche le type de chaque attaque sans sortir du cadre', () => {
+    for (const langue of ['fr', 'en'] as const) {
+      const banc = creerBanc(langue);
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(60), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: 'folianz',
+          niveau: 30,
+          origine: 'brume-3f7a',
+        }),
+      );
+      // Les quatre noms les plus longs du jeu, dans les deux langues : c'est ce cas-là
+      // qui débordait de la colonne voisine du temps de la grille à deux colonnes.
+      const parLongueur = MOVE_IDS.slice().sort(
+        (a, b) => MOVES[b].nom[langue].length - MOVES[a].nom[langue].length,
+      );
+      banc.jeu.state.equipe[0]!.moves = parLongueur.slice(0, 4).map((id) => ({ id, pp: 20 }));
+
+      banc.jeu.pousser(new SceneOverworld());
+      banc.jeu.dialogue.vider();
+      banc.jeu.pousser(
+        new SceneCombat({
+          genre: 'sauvage',
+          adversaires: [
+            creerCreature(makeRng(61), {
+              uid: 'sauvage-c',
+              speciesId: 'menhirok',
+              niveau: 30,
+              origine: 'brume-3f7a',
+            }),
+          ],
+        }),
+      );
+      for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+        banc.entrees.presser('annuler');
+        banc.trame();
+      }
+      banc.entrees.presser('valider'); // → liste d'attaques
+      banc.trame();
+
+      debordements = [];
+      textesDessines = [];
+      banc.trame();
+
+      expect(debordements, `${langue} : ${debordements.map((d) => d.texte).join(' | ')}`).toHaveLength(0);
+      // La plaque porte le nom du type en capitales : c'est elle qu'on vient vérifier.
+      const types = new Set(parLongueur.slice(0, 4).map((id) => banc.jeu.nomType(MOVES[id].type).toUpperCase()));
+      for (const type of types) expect(textesDessines, `${langue} : plaque ${type}`).toContain(type);
+    }
+  });
+
   it('choisit une attaque en combat au clic', () => {
     const banc = creerBanc();
     accueillirCreature(
@@ -2431,14 +2566,15 @@ describe('pointeur', () => {
       banc.trame();
     }
 
-    // Le panneau occupe les cinquante-deux derniers pixels ; « Attaquer » est en haut
-    // à gauche de sa grille, la seconde attaque en haut à droite de la suivante.
-    const hautDuPanneau = VIRTUAL_HEIGHT - 52 + 12;
-    banc.entrees.cliquer(40, hautDuPanneau);
+    // « Attaquer » est en haut à gauche de la grille d'actions, qui occupe les
+    // cinquante-deux derniers pixels de l'écran.
+    banc.entrees.cliquer(40, VIRTUAL_HEIGHT - 52 + 12);
     banc.trame();
     banc.trame();
 
-    banc.entrees.cliquer(VIRTUAL_WIDTH - 100, hautDuPanneau);
+    // La liste d'attaques a son propre panneau, plus haut : une attaque par ligne,
+    // douze pixels de pas. On vise la seconde.
+    banc.entrees.cliquer(60, VIRTUAL_HEIGHT - 52 - 26 + 8 + 12);
     banc.trame();
     for (let i = 0; i < 10; i++) banc.trame();
 

@@ -649,17 +649,28 @@ export class SceneMenu implements Scene {
     creature.moves.forEach((slot, index) => {
       const move = MOVES[slot.id];
       const y = 138 + index * 12;
-      peintre.texte(move.nom[jeu.langue], 20, y);
+
+      // Quatre informations sur une ligne, posées de droite à gauche : les PP au bord,
+      // puis les chiffres, puis la plaque de type, et le nom sur ce qui reste. Une
+      // colonne fixe pour les chiffres — c'était le cas — faisait passer les noms longs
+      // par-dessus, en silence : la mesure de débordement surveille l'écran, pas les
+      // colonnes.
+      const chiffres = `${jeu.t('fiche.puissance')} ${move.puissance || '—'}  ${jeu.t('fiche.precision')} ${
+        move.precision === 0 ? jeu.t('fiche.infaillible') : move.precision
+      }`;
+      const droiteChiffres = VIRTUAL_WIDTH - 20 - peintre.largeurTexte('00/00') - 8;
+      const nomX = 18 + peintre.largeurPlaque + 4;
+
+      peintre.plaqueType(move.type, jeu.nomType(move.type), 18, y - 1);
+      peintre.texteTronque(
+        move.nom[jeu.langue],
+        nomX,
+        y,
+        droiteChiffres - peintre.largeurTexte(chiffres) - 6 - nomX,
+      );
       // Puissance et précision : sans elles, choisir une attaque à oublier se faisait
       // au nom, donc au hasard.
-      peintre.texte(
-        `${jeu.t('fiche.puissance')} ${move.puissance || '—'}  ${jeu.t('fiche.precision')} ${
-          move.precision === 0 ? jeu.t('fiche.infaillible') : move.precision
-        }`,
-        112,
-        y,
-        { couleur: COULEURS.texteAttenue },
-      );
+      peintre.texteDroite(chiffres, droiteChiffres, y, { couleur: COULEURS.texteAttenue });
       peintre.texteDroite(`${slot.pp}/${move.pp}`, VIRTUAL_WIDTH - 20, y, { couleur: COULEURS.texteAttenue });
     });
 

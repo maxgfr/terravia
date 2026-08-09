@@ -10,6 +10,8 @@
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/viewport.ts';
 import { MOVES, type MoveId } from '../data/moves.ts';
 import { SPECIES } from '../data/species.ts';
+import { effectivenessAgainst, effectivenessTier } from '../data/types.ts';
+import type { CleTexte } from '../i18n/index.ts';
 import { STAT_NAMES, STATUS_NAMES } from '../data/stats.ts';
 import { ITEMS } from '../data/items.ts';
 import { choisirAttaque, choisirRemplacant, type NiveauIA } from '../battle/ai.ts';
@@ -301,6 +303,23 @@ export class SceneCombat implements Scene {
     };
   }
 
+  /**
+   * Le panneau des attaques déborde vers le haut, contrairement aux autres.
+   *
+   * Quatre lignes portant chacune un nom, une plaque de type et des PP ne tiennent pas
+   * dans les quarante-six pixels du menu ordinaire. Plutôt que de rogner la moitié basse
+   * du terrain pour tous les écrans — les créatures et leurs jauges y sont placées —,
+   * ce menu-ci seul empiète sur le décor, le temps qu'on choisisse.
+   */
+  private cadreAttaques(): { x: number; y: number; largeur: number; hauteur: number } {
+    return {
+      x: 6,
+      y: VIRTUAL_HEIGHT - HAUTEUR_MENU - 26,
+      largeur: VIRTUAL_WIDTH - 12,
+      hauteur: 72,
+    };
+  }
+
   /** Géométrie de la tranche visible d'une liste déroulante du panneau de combat. */
   private colonneMenu(nombre: number): Colonne {
     return {
@@ -331,12 +350,23 @@ export class SceneCombat implements Scene {
 
   private menuAttaques(jeu: Jeu): void {
     const attaques = this.creatureJoueur.moves;
-    this.naviguer(jeu, attaques.length, 2);
+    this.naviguer(jeu, attaques.length);
+    // Les quatre attaques sont toujours toutes dessinées : le défilement des listes
+    // longues n'a rien à faire ici, et décalerait la liste d'un cran dès la quatrième.
+    this.defilement = 0;
     if (jeu.entrees.pressee('annuler')) {
       this.allerAu('racine');
       return;
     }
-    if (!this.validee(jeu, this.grilleMenu(attaques.length, 16, Math.floor((VIRTUAL_WIDTH - 32) / 2)))) return;
+    const cadre = this.cadreAttaques();
+    const colonne: Colonne = {
+      x: cadre.x + 4,
+      largeur: cadre.largeur - 8,
+      y: cadre.y + 5,
+      pas: 12,
+      lignes: attaques.length,
+    };
+    if (!this.validee(jeu, colonne)) return;
     if ((attaques[this.selection]?.pp ?? 0) <= 0) {
       jeu.dialogue.dire(jeu.t('combat.plusDePp'));
       return;
@@ -407,23 +437,61 @@ export class SceneCombat implements Scene {
   }
 
   /** Traduit chaque événement du moteur en une ligne de dialogue. */
+  /**
+   * Rejoue un tour : ses répliques à la file, ses animations avec elles.
+   *
+   * Le regroupement est le cœur de la méthode. Un tour produit plus d'événements que de
+   * répliques — la moitié des dégâts ne se commentent pas — et chaque animation revient
+   * à la dernière réplique annoncée, celle que le joueur est en train de lire. Les
+   * déclencher toutes à l'empilement, comme on le faisait, revenait à ne montrer que la
+   * dernière, par-dessus le premier texte : notre créature tremblait sous « X utilise Y »,
+   * et l'on croyait que ses propres attaques la blessaient.
+   */
   private jouer(jeu: Jeu, evenements: readonly BattleEvent[]): void {
+    const etapes: { readonly texte: string; readonly effets: (() => void)[] }[] = [];
+    const avantToutTexte: (() => void)[] = [];
+
     for (const evenement of evenements) {
       const message = this.decrire(jeu, evenement);
-      if (message) jeu.dialogue.dire(message);
-      // La secousse suit celui qui encaisse : elle s'appliquait à l'adversaire même
-      // quand c'était nous qui prenions le coup.
-      if (evenement.type === 'degats' && evenement.montant > 0) {
-        this.tremblement = 1;
-        this.coteFrappe = evenement.cible;
-      }
-      if (evenement.type === 'ko') this.chute[evenement.cible] = 1;
+      if (message) etapes.push({ texte: message, effets: [] });
+
+      const effet = this.animationDe(evenement);
+      if (!effet) continue;
+      // Une animation sans réplique devant elle n'a rien à attendre : c'est le cas d'un
+      // tour entièrement muet, où elle joue tout de suite.
+      (etapes[etapes.length - 1]?.effets ?? avantToutTexte).push(effet);
     }
+
+    for (const effet of avantToutTexte) effet();
+    for (const etape of etapes) {
+      jeu.dialogue.direAvec(etape.texte, () => {
+        for (const effet of etape.effets) effet();
+      });
+    }
+
     this.attente = true;
     jeu.dialogue.puis(() => {
       this.attente = false;
       this.apresTour(jeu);
     });
+  }
+
+  /** Ce qu'un événement fait bouger à l'écran, ou `null` s'il ne bouge rien. */
+  private animationDe(evenement: BattleEvent): (() => void) | null {
+    // La secousse suit celui qui encaisse : elle s'appliquait à l'adversaire même
+    // quand c'était nous qui prenions le coup.
+    if (evenement.type === 'degats' && evenement.montant > 0) {
+      const cote = evenement.cible;
+      return () => {
+        this.tremblement = 1;
+        this.coteFrappe = cote;
+      };
+    }
+    if (evenement.type === 'ko') {
+      const cote = evenement.cible;
+      return () => void (this.chute[cote] = 1);
+    }
+    return null;
   }
 
   private decrire(jeu: Jeu, evenement: BattleEvent): string | null {
@@ -742,6 +810,11 @@ export class SceneCombat implements Scene {
   }
 
   private dessinerMenu(jeu: Jeu): void {
+    if (this.menu === 'attaques') {
+      this.dessinerAttaques(jeu);
+      return;
+    }
+
     const peintre = jeu.peintre;
     const y = VIRTUAL_HEIGHT - HAUTEUR_MENU;
     peintre.panneau(6, y, VIRTUAL_WIDTH - 12, 46);
@@ -755,18 +828,6 @@ export class SceneCombat implements Scene {
         const colonne = index % 2;
         const ligne = Math.floor(index / 2);
         this.option(jeu, libelle, 20 + colonne * colonneLarge, y + 10 + ligne * 14, index === this.selection);
-      });
-      return;
-    }
-
-    if (this.menu === 'attaques') {
-      const attaques = this.creatureJoueur.moves;
-      attaques.forEach((slot, index) => {
-        const colonne = index % 2;
-        const ligne = Math.floor(index / 2);
-        const move = MOVES[slot.id];
-        const libelle = `${move.nom[jeu.langue]}  ${slot.pp}/${move.pp}`;
-        this.option(jeu, libelle, 16 + colonne * Math.floor((VIRTUAL_WIDTH - 32) / 2), y + 10 + ligne * 14, index === this.selection);
       });
       return;
     }
@@ -789,6 +850,73 @@ export class SceneCombat implements Scene {
       y,
       (membre) => `${jeu.nomCreature(membre)}  ${membre.pv}/${pvMax(membre)}`,
     );
+  }
+
+  /**
+   * Les attaques, une par ligne, avec leur type.
+   *
+   * Le type décide de tout en combat et n'apparaissait nulle part au moment de choisir :
+   * il fallait le retenir espèce par espèce, ou aller le lire au Terradex entre deux
+   * tours. C'est aussi ce qui a fait abandonner la grille à deux colonnes — un nom long
+   * y passait déjà par-dessus la colonne voisine, avant même d'y ajouter une plaque.
+   */
+  private dessinerAttaques(jeu: Jeu): void {
+    const peintre = jeu.peintre;
+    const cadre = this.cadreAttaques();
+    peintre.panneau(cadre.x, cadre.y, cadre.largeur, cadre.hauteur);
+
+    // De droite à gauche : les PP au bord, la plaque juste avant, le nom sur ce qui reste.
+    const bordDroit = cadre.x + cadre.largeur - 10;
+    const plaqueX = bordDroit - peintre.largeurTexte('00/00') - 6 - peintre.largeurPlaque;
+
+    this.creatureJoueur.moves.forEach((slot, index) => {
+      const move = MOVES[slot.id];
+      const ligneY = cadre.y + 8 + index * 12;
+      const choisi = index === this.selection;
+
+      if (choisi) peintre.texte('▶', cadre.x + 6, ligneY, { couleur: COULEURS.selection });
+      peintre.texteTronque(move.nom[jeu.langue], cadre.x + 16, ligneY, plaqueX - cadre.x - 20, {
+        couleur: choisi ? COULEURS.texteAccent : COULEURS.texte,
+      });
+      peintre.plaqueType(move.type, jeu.nomType(move.type), plaqueX, ligneY - 1);
+      peintre.texteDroite(`${slot.pp}/${move.pp}`, bordDroit, ligneY, {
+        // Une attaque sans PP ne part pas : elle doit se voir avant d'être choisie.
+        couleur: slot.pp === 0 ? COULEURS.pvBas : COULEURS.texteAttenue,
+      });
+    });
+
+    this.dessinerDetailAttaque(jeu, cadre.x + 12, cadre.y + 58, bordDroit);
+  }
+
+  /**
+   * Ce que fait l'attaque visée, et ce qu'elle vaut contre l'adversaire du moment.
+   *
+   * C'est la réponse à « on se perd » : la plaque dit le type, cette ligne dit ce qu'il
+   * change ici et maintenant. Sans elle, comprendre la table des types demandait d'ouvrir
+   * le Terradex entre deux tours, ou de l'apprendre par cœur.
+   */
+  private dessinerDetailAttaque(jeu: Jeu, x: number, y: number, bordDroit: number): void {
+    const slot = this.creatureJoueur.moves[this.selection];
+    if (!slot) return;
+    const move = MOVES[slot.id];
+    const peintre = jeu.peintre;
+
+    const chiffres =
+      move.categorie === 'statut'
+        ? jeu.t('encyclopedie.categorie.statut')
+        : `${jeu.t(`encyclopedie.categorie.${move.categorie}` as CleTexte)}  ${jeu.t('fiche.puissance')} ${
+            move.puissance || '—'
+          }  ${jeu.t('fiche.precision')} ${move.precision === 0 ? jeu.t('fiche.infaillible') : move.precision}`;
+    peintre.texte(chiffres, x, y, { couleur: COULEURS.texteAttenue });
+
+    // Une attaque de statut ne se mesure pas à la table des types : l'annoncer
+    // « très efficace » induirait en erreur.
+    if (move.categorie === 'statut') return;
+    const palier = effectivenessTier(effectivenessAgainst(move.type, SPECIES[this.adversaire.speciesId].types));
+    if (palier === 'neutral') return;
+    peintre.texteDroite(jeu.t(`combat.efficace.${palier}` as CleTexte), bordDroit, y, {
+      couleur: palier === 'strong' || palier === 'veryStrong' ? COULEURS.pvHaut : COULEURS.pvBas,
+    });
   }
 
   /** Dessine la tranche visible d'une liste, avec un repère quand elle déborde. */

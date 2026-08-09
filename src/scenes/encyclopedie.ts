@@ -146,7 +146,9 @@ export class SceneEncyclopedie implements Scene {
       const y = 30 + ligne * 12;
       const choisi = index === this.selection;
       if (choisi) peintre.texte('▶', 14, y, { couleur: COULEURS.selection });
-      peintre.texte(this.nomDe(jeu, id), 24, y, {
+      // Coupé à la colonne : « Spores Engourdissantes » passait par-dessus le filet
+      // séparateur et mordait sur le détail affiché à droite.
+      peintre.texteTronque(this.nomDe(jeu, id), 24, y, largeur - 26, {
         couleur: choisi ? COULEURS.texteAccent : COULEURS.texte,
       });
     }

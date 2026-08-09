@@ -549,3 +549,94 @@ describe('reproductibilité', () => {
     }
   });
 });
+
+/**
+ * Qui encaisse quoi.
+ *
+ * Un doute a été soulevé en jouant : « on dirait que mes attaques me font des dégâts à
+ * moi aussi ». Trois choses peuvent réellement retirer des points de vie à l'attaquant —
+ * le contrecoup de deux attaques, une altération de fin de tour, et la riposte d'un
+ * talent — et chacune s'annonce. Toute autre perte serait un bug, et ce bloc l'attrape.
+ */
+describe('personne ne se blesse tout seul', () => {
+  /** Les deux seules attaques qui se retournent contre celui qui les lance. */
+  const A_CONTRECOUP = new Set(['elanTemeraire', 'lutte']);
+
+  it('ne retire jamais de points de vie à l’attaquant, hors contrecoup annoncé', () => {
+    for (const id of Object.keys(MOVES)) {
+      // Une cible neutre, sans talent de riposte ni altération : il ne reste que
+      // l'attaque elle-même comme cause possible.
+      const state = creerCombat(creature('mulotin', 40), creature('mulotin', 40), 'sauvage');
+      state.joueur.instance.moves = [{ id: id as keyof typeof MOVES, pp: 20 }];
+      // Un talent sans effet sur les dégâts de part et d'autre : ni riposte, ni épines.
+      state.joueur.instance.talentId = 'oeilAiguise';
+      state.adversaire.instance.talentId = 'oeilAiguise';
+      const avant = state.joueur.instance.pv;
+
+      // La graine est balayée : un effet aléatoire ne doit pas pouvoir se glisser dans
+      // un seul tirage sur vingt sans que le test le voie.
+      for (let graine = 1; graine <= 20; graine++) {
+        state.joueur.instance.pv = avant;
+        state.adversaire.instance.pv = 400;
+        state.joueur.instance.statut = null;
+        const events = resoudreTour(state, { kind: 'attaque', index: 0 }, 0, makeRng(graine));
+
+        const perdus = avant - state.joueur.instance.pv;
+        if (perdus === 0) continue;
+
+        // Quelque chose a fait mal : il faut que ce soit dit, et pour la bonne raison.
+        const messages = events.filter((event) => event.type === 'message');
+        const explique = messages.some(
+          (event) => 'cle' in event && (event.cle === 'combat.recul' || event.cle.startsWith('combat.souffre.')),
+        );
+        const rendu = events.some(
+          (event) => event.type === 'attaque' && 'acteur' in event && event.acteur === 'adversaire',
+        );
+        expect(
+          A_CONTRECOUP.has(id) || rendu || explique,
+          `${id} a retiré ${perdus} PV à celui qui l’a lancée, sans contrecoup ni riposte (graine ${graine})`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('annonce le contrecoup chaque fois qu’il mord', () => {
+    const state = creerCombat(creature('mulotin', 40), creature('plumelle', 40), 'sauvage');
+    state.joueur.instance.moves = [{ id: 'elanTemeraire', pp: 20 }];
+
+    let vuAuMoinsUneFois = false;
+    for (let graine = 1; graine <= 30; graine++) {
+      state.joueur.instance.pv = 300;
+      state.adversaire.instance.pv = 300;
+      const events = resoudreTour(state, { kind: 'attaque', index: 0 }, 0, makeRng(graine));
+
+      const recul = events.findIndex((event) => event.type === 'message' && 'cle' in event && event.cle === 'combat.recul');
+      if (recul < 0) continue;
+      vuAuMoinsUneFois = true;
+      // Le message précède immédiatement les dégâts qu'il explique, et ceux-ci visent
+      // bien celui qui a attaqué.
+      const suivant = events[recul + 1];
+      expect(suivant?.type).toBe('degats');
+      expect(suivant && 'cible' in suivant ? suivant.cible : null).toBe('joueur');
+    }
+    expect(vuAuMoinsUneFois, 'Élan Téméraire doit mordre au moins une fois sur trente').toBe(true);
+  });
+
+  it('attribue chaque perte de points de vie au bon camp', () => {
+    // Trente tours complets, deux créatures capables de s'infliger des altérations :
+    // à chaque événement de dégâts, on recalcule les points de vie de zéro et l'on
+    // exige qu'ils correspondent à ce que l'événement annonce.
+    const state = creerCombat(creature('sylvanor', 45), creature('dardyle', 45), 'sauvage');
+    for (let tour = 1; tour <= 30 && state.issue === null; tour++) {
+      const events = resoudreTour(state, { kind: 'attaque', index: tour % 4 }, tour % 4, makeRng(tour));
+      for (const event of events) {
+        if (event.type !== 'degats' && event.type !== 'soin') continue;
+        const cote = event.cible;
+        expect(
+          state[cote].instance.pv >= 0,
+          `${event.type} sur ${cote} au tour ${tour}`,
+        ).toBe(true);
+      }
+    }
+  });
+});

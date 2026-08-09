@@ -28,8 +28,14 @@ interface Question {
   readonly resoudre: (index: number) => void;
 }
 
+/** Une réplique en file, avec ce qu'elle déclenche au moment où elle s'affiche. */
+interface Replique {
+  readonly texte: string;
+  readonly alAffichage?: () => void;
+}
+
 export class BoiteDialogue {
-  private file: string[] = [];
+  private file: Replique[] = [];
   private courant: string | null = null;
   private lignes: string[] = [];
   private reveles = 0;
@@ -51,7 +57,23 @@ export class BoiteDialogue {
 
   /** Ajoute un ou plusieurs messages à la file. */
   dire(...messages: string[]): void {
-    this.file.push(...messages.filter((message) => message.length > 0));
+    for (const texte of messages) if (texte.length > 0) this.file.push({ texte });
+    if (this.courant === null) this.avancer();
+  }
+
+  /**
+   * Ajoute une réplique et l'effet qu'elle déclenche en s'affichant.
+   *
+   * C'est ce qui permet à une animation de combat de tomber avec son texte plutôt qu'au
+   * moment où le tour est empilé. Sans cela, toutes les secousses d'un tour partaient
+   * ensemble, sur la dernière cible : notre créature tremblait sous « X utilise Y ».
+   */
+  direAvec(texte: string, alAffichage: () => void): void {
+    if (texte.length === 0) {
+      alAffichage();
+      return;
+    }
+    this.file.push({ texte, alAffichage });
     if (this.courant === null) this.avancer();
   }
 
@@ -108,9 +130,10 @@ export class BoiteDialogue {
       fin?.();
       return;
     }
-    this.courant = suivant;
-    this.lignes = this.peintre.decouper(suivant, VIRTUAL_WIDTH - MARGE * 4);
+    this.courant = suivant.texte;
+    this.lignes = this.peintre.decouper(suivant.texte, VIRTUAL_WIDTH - MARGE * 4);
     this.reveles = 0;
+    suivant.alAffichage?.();
   }
 
   private get totalCaracteres(): number {

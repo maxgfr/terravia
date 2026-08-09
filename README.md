@@ -103,7 +103,7 @@ You can also export a single creature and import it into another game.
 
 ## Tests
 
-316 tests, run in continuous integration before every deploy. The useful ones don't check
+321 tests, run in continuous integration before every deploy. The useful ones don't check
 details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;
@@ -129,6 +129,11 @@ details, they check **invariants** — which matters more now that the world its
 - a click walks the player to the tile, around whatever blocks the straight line, and
   stops beside a character to talk instead of on top of them;
 - every battle terminates, whichever two creatures are involved;
+- **no move ever damages the creature that used it**, except the two that declare recoil
+  and say so — checked across all 53 moves over twenty rolls each, so nothing hides in a
+  rare branch;
+- the shake lands on whoever is taking the hit in the line currently on screen, never on
+  the attacker;
 - an exported then reimported game returns an identical state, and the world rebuilds
   byte for byte from the seed;
 - every character in the game's text exists in the font, in both languages.

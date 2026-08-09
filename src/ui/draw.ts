@@ -159,6 +159,22 @@ export class Peintre {
     return lignes.length * this.hauteurLigne;
   }
 
+  /**
+   * Texte sur une ligne, coupé net s'il déborde de la largeur donnée.
+   *
+   * Les listes serrées — attaques en combat, fiche de créature — mettent trois colonnes
+   * sur une ligne, et un nom long passait par-dessus la suivante sans que rien ne le
+   * signale : le contrôle de débordement mesure les bords de l'écran, pas ceux d'une
+   * colonne. Mieux vaut un nom abrégé qu'un chevauchement.
+   */
+  texteTronque(contenu: string, x: number, y: number, largeurMax: number, options: OptionsTexte = {}): void {
+    const parLigne = Math.floor(largeurMax / this.assets.police.metriques.cellWidth);
+    const lettres = [...contenu];
+    const abrege =
+      lettres.length <= parLigne ? contenu : `${lettres.slice(0, Math.max(0, parLigne - 1)).join('')}…`;
+    this.texte(abrege, x, y, options);
+  }
+
   /** Texte aligné à gauche et découpé. Renvoie la hauteur occupée. */
   texteBloc(contenu: string, x: number, y: number, largeurMax: number, options: OptionsTexte = {}): number {
     const lignes = this.decouper(contenu, largeurMax);
