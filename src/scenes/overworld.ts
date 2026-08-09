@@ -5,6 +5,11 @@
  * ce qui donne la sensation « grille » du genre tout en restant fluide. Aucune action
  * n'est prise pendant qu'un pas est en cours : les entrées sont lues, mais elles ne
  * font que préparer le pas suivant.
+ *
+ * Deux façons de mener le personnage cohabitent. Le clavier pousse dans une direction,
+ * pas par pas. Le clic pose une destination et le trajet s'y rend seul, en contournant
+ * ce qui gêne — et si la case visée est un PNJ ou de l'eau, il s'arrête juste à côté et
+ * agit. Toute touche de direction reprend la main sur-le-champ.
  */
 
 import { TILE_SIZE, VIRTUAL_HEIGHT, VIRTUAL_WIDTH } from '../core/viewport.ts';
@@ -33,6 +38,7 @@ import { DIRECTION_VECTORS, type Direction } from '../world/characterIds.ts';
 import { TAUX_RENCONTRE, tirerRencontre } from '../world/encounters.ts';
 import type { Dresseur, Entite } from '../world/entities.ts';
 import { lireTuile, type Region } from '../world/region.ts';
+import { trouverChemin, type Case } from '../world/chemin.ts';
 import { badgeDe } from '../world/worldgen.ts';
 import { TILES } from '../world/tiles.ts';
 import { COULEURS } from '../ui/draw.ts';
@@ -73,6 +79,17 @@ export class SceneOverworld implements Scene {
   private trameMarche = 0;
   private distanceParcourue = 0;
   private annonce: { texte: string; restant: number } | null = null;
+
+  /** Les cases qu'il reste à traverser après un clic, dans l'ordre. */
+  private chemin: Case[] = [];
+  /**
+   * Ce qu'il faudra faire en arrivant au bout du chemin.
+   *
+   * Cliquer un PNJ à l'autre bout de la place mène jusqu'à lui *et* engage la
+   * conversation : sans cette mémoire, il faudrait un second clic une fois sur place,
+   * exactement là où le premier voulait déjà dire « va lui parler ».
+   */
+  private aInteragirEn: Case | null = null;
 
   entrer(jeu: Jeu): void {
     marquerRegionVisitee(jeu.state, jeu.state.joueur.regionIndex);
@@ -140,6 +157,9 @@ export class SceneOverworld implements Scene {
     }
 
     if (jeu.dialogue.actif) {
+      // Parler interrompt la marche : reprendre le trajet après une conversation, c'est
+      // repartir alors qu'on venait justement d'arriver quelque part.
+      this.abandonnerChemin();
       jeu.dialogue.mettreAJour(step, jeu.entrees);
       return;
     }
@@ -153,19 +173,27 @@ export class SceneOverworld implements Scene {
     // rien dans le monde parcouru — pendant que l'aide, le didacticiel et le README
     // promettaient tous les trois qu'elle ouvrait le menu.
     if (jeu.entrees.pressee('menu') || jeu.entrees.pressee('annuler')) {
+      this.abandonnerChemin();
       jeu.pousser(new SceneMenu());
       return;
     }
     if (jeu.entrees.pressee('valider')) {
+      this.abandonnerChemin();
       this.interagir(jeu);
       return;
     }
-    if (this.clicSurUneEntite(jeu)) return;
 
-    // Plusieurs directions peuvent être proposées : la première qui passe est jouée.
-    for (const direction of this.directionsDemandees(jeu)) {
-      if (this.tenterPas(jeu, direction)) break;
+    // Le clavier reprend la main sans cérémonie : une direction demandée annule le
+    // trajet en cours, sinon il faudrait attendre son terme pour se raviser.
+    const direction = this.directionDemandee(jeu);
+    if (direction) {
+      this.abandonnerChemin();
+      this.tenterPas(jeu, direction);
+      return;
     }
+
+    this.lireClic(jeu);
+    this.suivreChemin(jeu);
   }
 
   /** La case du monde que le pointeur désigne, ou `null` s'il n'y en a pas. */
@@ -179,63 +207,147 @@ export class SceneOverworld implements Scene {
     };
   }
 
+  private directionDemandee(jeu: Jeu): Direction | null {
+    for (const direction of ['nord', 'sud', 'est', 'ouest'] as const) {
+      if (jeu.entrees.maintenue(direction)) return direction;
+    }
+    return null;
+  }
+
+  private abandonnerChemin(): void {
+    this.chemin = [];
+    this.aInteragirEn = null;
+  }
+
+  // ── Navigation au clic ─────────────────────────────────────────────────────
+
   /**
-   * Cliquer une case voisine intéressante revient à s'y tourner puis à valider.
+   * Un clic trace un trajet jusqu'à la case visée, et l'y mène tout seul.
    *
-   * Sans cela, jouer à la souris permettrait de marcher mais pas de parler : il faudrait
-   * revenir au clavier devant chaque PNJ, chaque panneau et chaque comptoir de soin. Et
-   * l'eau compte autant qu'une entité — c'est là qu'on lance la canne, et rien d'autre
-   * ne permettrait de pêcher au pointeur.
+   * Trois cas, dans cet ordre : la case est praticable et l'on s'y rend ; elle porte
+   * quelque chose à qui parler — ou de l'eau où pêcher — et l'on va se placer à côté
+   * avant d'agir ; elle n'est ni l'un ni l'autre, et le clic ne fait rien. Un mur cliqué
+   * ne doit pas envoyer marcher ailleurs : le silence est plus lisible qu'un à-peu-près.
    */
-  private clicSurUneEntite(jeu: Jeu): boolean {
-    if (!jeu.entrees.cliquePresse()) return false;
+  private lireClic(jeu: Jeu): void {
+    if (!jeu.entrees.cliquePresse()) return;
     const cible = this.caseVisee(jeu);
-    if (!cible) return false;
+    if (!cible) return;
+
+    const region = this.region(jeu);
+    const depart: Case = { x: jeu.state.joueur.x, y: jeu.state.joueur.y };
+    const voisines = (depuis: Case): Case[] => this.casesAtteignables(jeu, region, depuis);
+
+    if (this.praticable(jeu, region, cible.x, cible.y)) {
+      this.chemin = trouverChemin(depart, (c) => c.x === cible.x && c.y === cible.y, voisines) ?? [];
+      this.aInteragirEn = null;
+      return;
+    }
+
+    if (!this.interactive(jeu, region, cible)) return;
+
+    // On vise les quatre voisines de la cible, et le parcours choisit la plus proche.
+    const chemin = trouverChemin(
+      depart,
+      (c) => Math.abs(c.x - cible.x) + Math.abs(c.y - cible.y) === 1,
+      voisines,
+    );
+    if (!chemin) return;
+    this.chemin = chemin;
+    this.aInteragirEn = cible;
+    // Déjà à côté : il n'y a rien à parcourir, seulement à se tourner et à agir.
+    if (chemin.length === 0) this.acheverChemin(jeu);
+  }
+
+  /** Avance d'une case le long du trajet en cours, s'il en reste un. */
+  private suivreChemin(jeu: Jeu): void {
+    const prochaine = this.chemin[0];
+    if (!prochaine) return;
+
+    const joueur = jeu.state.joueur;
+    const dx = prochaine.x - joueur.x;
+    const dy = prochaine.y - joueur.y;
+    // Un saut de rebord franchit deux cases d'un coup : c'est l'ordonnée qui décide,
+    // pas la distance.
+    const direction: Direction = dy > 0 ? 'sud' : dy < 0 ? 'nord' : dx > 0 ? 'est' : 'ouest';
+
+    if (!this.tenterPas(jeu, direction)) {
+      // Le monde a bougé depuis le tracé — un dresseur s'est mis en travers. Mieux vaut
+      // s'arrêter que de piétiner contre lui jusqu'au prochain clic.
+      this.abandonnerChemin();
+      return;
+    }
+    // Le pas est seulement *engagé* : la position ne changera qu'au bout de son
+    // interpolation. C'est donc `avancerPas`, et non ici, qui constatera l'arrivée.
+    this.chemin.shift();
+  }
+
+  /**
+   * Ce qui se passe une fois le bout du trajet atteint.
+   *
+   * L'interaction est différée d'ici plutôt que déclenchée au clic : au moment du clic,
+   * le joueur est encore à l'autre bout de la place.
+   */
+  private acheverChemin(jeu: Jeu): void {
+    const cible = this.aInteragirEn;
+    this.aInteragirEn = null;
+    if (!cible) return;
 
     const joueur = jeu.state.joueur;
     const dx = cible.x - joueur.x;
     const dy = cible.y - joueur.y;
-    // Uniquement les quatre voisines : au-delà, le clic veut dire « marche », pas « parle ».
-    if (Math.abs(dx) + Math.abs(dy) !== 1) return false;
-
-    const region = this.region(jeu);
-    const interessante =
-      region.entites.some(
-        (entite) => entite.x === cible.x && entite.y === cible.y && entite.kind !== 'objet',
-      ) || lireTuile(region, cible.x, cible.y) === 'eau';
-    if (!interessante) return false;
-
+    if (Math.abs(dx) + Math.abs(dy) !== 1) return;
     joueur.direction = dx === 1 ? 'est' : dx === -1 ? 'ouest' : dy === 1 ? 'sud' : 'nord';
     this.interagir(jeu);
-    return true;
+  }
+
+  /** Une case où le joueur peut se tenir : ni solide, ni occupée. */
+  private praticable(jeu: Jeu, region: Region, x: number, y: number): boolean {
+    const tuile = lireTuile(region, x, y);
+    if (TILES[tuile].solid || tuile === 'vide') return false;
+    // Un rebord se saute, il ne s'habite pas : viser l'un d'eux, c'est viser sa
+    // réception, et le trajet passe par là de lui-même.
+    if (TILES[tuile].ledge === 'sud') return false;
+    return !this.entiteEn(region, x, y, jeu);
+  }
+
+  /** Une case qui répond quand on lui parle : une entité, ou de l'eau où lancer la canne. */
+  private interactive(jeu: Jeu, region: Region, cible: Case): boolean {
+    if (lireTuile(region, cible.x, cible.y) === 'eau') return true;
+    return region.entites.some(
+      (entite) =>
+        entite.x === cible.x &&
+        entite.y === cible.y &&
+        entite.kind !== 'objet' &&
+        !(entite.kind === 'dresseur' && dresseurVaincu(jeu.state, entite.id)),
+    );
   }
 
   /**
-   * Les directions à tenter cette trame, de la plus souhaitable à la moins.
+   * Les cases accessibles en un pas, avec exactement les règles du déplacement.
    *
-   * Le clavier n'en propose qu'une. Le pointeur maintenu en propose deux : le jeu marche
-   * vers le curseur, en commençant par l'axe le plus éloigné et en se rabattant sur
-   * l'autre quand le premier est bloqué. C'est ce qui fait longer un arbre au lieu de
-   * s'y coller — sans recherche de chemin, qui n'a pas sa place pour une case à la fois.
+   * Elles sont écrites deux fois — ici et dans `tenterPas` — et c'est assumé : la
+   * première décide d'un trajet, la seconde l'exécute case par case. Elles ne peuvent
+   * pas fusionner, `tenterPas` ayant des effets. Si elles divergeaient, le trajet
+   * buterait, et `suivreChemin` s'arrêterait proprement plutôt que de s'entêter.
    */
-  private directionsDemandees(jeu: Jeu): Direction[] {
+  private casesAtteignables(jeu: Jeu, region: Region, depuis: Case): Case[] {
+    const cases: Case[] = [];
     for (const direction of ['nord', 'sud', 'est', 'ouest'] as const) {
-      if (jeu.entrees.maintenue(direction)) return [direction];
+      const { dx, dy } = DIRECTION_VECTORS[direction];
+      const versX = depuis.x + dx;
+      const versY = depuis.y + dy;
+      const tuile = lireTuile(region, versX, versY);
+
+      if (TILES[tuile].ledge === 'sud') {
+        // Un rebord ne se franchit que vers le sud, et l'on atterrit une case plus bas.
+        if (direction !== 'sud') continue;
+        if (this.praticable(jeu, region, versX, versY + 1)) cases.push({ x: versX, y: versY + 1 });
+        continue;
+      }
+      if (this.praticable(jeu, region, versX, versY)) cases.push({ x: versX, y: versY });
     }
-
-    if (!jeu.entrees.cliqueMaintenu()) return [];
-    const cible = this.caseVisee(jeu);
-    if (!cible) return [];
-
-    const dx = cible.x - jeu.state.joueur.x;
-    const dy = cible.y - jeu.state.joueur.y;
-    if (dx === 0 && dy === 0) return [];
-
-    const horizontal: Direction = dx > 0 ? 'est' : 'ouest';
-    const vertical: Direction = dy > 0 ? 'sud' : 'nord';
-    if (dx === 0) return [vertical];
-    if (dy === 0) return [horizontal];
-    return Math.abs(dx) >= Math.abs(dy) ? [horizontal, vertical] : [vertical, horizontal];
+    return cases;
   }
 
   /** Engage un pas dans cette direction. Faux si elle est barrée. */
@@ -296,6 +408,15 @@ export class SceneOverworld implements Scene {
     this.distanceParcourue += 1;
 
     this.aArriveSurUneCase(jeu);
+
+    // Poser le pied quelque part peut tout changer : une rencontre s'engage, une porte
+    // mène ailleurs, un panneau se met à parler. Le reste du trajet n'a alors plus de
+    // sens — il a été tracé sur une région, et parfois même sur une autre.
+    if (jeu.dialogue.actif || jeu.sommet !== this) {
+      this.abandonnerChemin();
+      return;
+    }
+    if (this.chemin.length === 0) this.acheverChemin(jeu);
   }
 
   // ── Ce qui se déclenche en posant le pied ──────────────────────────────────
@@ -409,6 +530,7 @@ export class SceneOverworld implements Scene {
   }
 
   private changerDeRegion(jeu: Jeu, vers: number, cote: 'nord' | 'sud'): void {
+    this.abandonnerChemin();
     const joueur = jeu.state.joueur;
     joueur.regionIndex = vers;
     marquerRegionVisitee(jeu.state, vers);
@@ -596,17 +718,22 @@ export class SceneOverworld implements Scene {
       }
     }
 
-    // La case visée, tant qu'une souris désigne quelque chose : marcher au pointeur sans
-    // ce repère revient à deviner où l'on clique. Un doigt n'en a pas besoin — il est
-    // posé sur l'endroit qu'il désigne.
-    const visee = this.caseVisee(jeu);
-    if (visee && !jeu.entrees.tactile) {
+    // La case sous la souris, puis la destination du trajet en cours. La première dit
+    // ce qu'un clic ferait, la seconde où l'on a déjà envoyé le personnage — sans elle,
+    // une marche automatique ressemble à un jeu qui décide tout seul.
+    const visee = jeu.entrees.tactile ? null : this.caseVisee(jeu);
+    const destination = this.aInteragirEn ?? this.chemin[this.chemin.length - 1] ?? null;
+    for (const [repere, couleur] of [
+      [destination, COULEURS.texteAccent],
+      [visee, COULEURS.selection],
+    ] as const) {
+      if (!repere) continue;
       peintre.contour(
-        visee.x * TILE_SIZE - cameraX,
-        visee.y * TILE_SIZE - cameraY,
+        repere.x * TILE_SIZE - cameraX,
+        repere.y * TILE_SIZE - cameraY,
         TILE_SIZE,
         TILE_SIZE,
-        COULEURS.selection,
+        couleur,
       );
     }
 

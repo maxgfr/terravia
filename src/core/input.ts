@@ -65,8 +65,6 @@ export interface Entrees {
    * flèches à chaque trame.
    */
   pointeurBouge(): boolean;
-  /** Vrai tant que le bouton reste enfoncé : c'est ce qui permet de marcher au clic. */
-  cliqueMaintenu(): boolean;
   /** À appeler à la fin de chaque trame de logique. */
   finDeTrame(): void;
   /** Vrai si la dernière entrée venait d'un doigt : l'aide affichée s'y adapte. */
@@ -142,7 +140,6 @@ export function creerEntrees(hote: HTMLElement, cible?: CiblePointeur): Entrees 
       return pointeur;
     },
     cliquePresse: () => presse,
-    cliqueMaintenu: () => maintenu,
     pointeurBouge: () => bouge,
     finDeTrame: () => {
       nouvelles.clear();

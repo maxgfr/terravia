@@ -31,7 +31,7 @@ import { makeRng } from '../src/core/rng.ts';
 import { Peintre } from '../src/ui/draw.ts';
 import { SceneTitre } from '../src/scenes/titre.ts';
 import { SceneOverworld } from '../src/scenes/overworld.ts';
-import { SceneMenu } from '../src/scenes/menu.ts';
+import { ENTREES_RACINE, SceneMenu } from '../src/scenes/menu.ts';
 import { SceneCombat } from '../src/scenes/combat.ts';
 import { CHARACTER_IDS } from '../src/world/characterIds.ts';
 import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../src/data/types.ts';
@@ -40,6 +40,7 @@ import { SPECIES, SPECIES_IDS } from '../src/data/species.ts';
 import { experienceForLevel } from '../src/data/stats.ts';
 import { TILES, TILE_IDS } from '../src/world/tiles.ts';
 import { lireTuile } from '../src/world/region.ts';
+import { trouverChemin } from '../src/world/chemin.ts';
 
 import { badgeDe, creerMonde, toutesLesArenesVaincues } from '../src/world/worldgen.ts';
 import { VIRTUAL_HEIGHT, VIRTUAL_WIDTH, cadrer } from '../src/core/viewport.ts';
@@ -125,7 +126,6 @@ class EntreesSimulees implements Entrees {
 
   pointeur: Point | null = null;
   private clicPresse = false;
-  private clicMaintenu = false;
   private bouge = false;
 
   maintenue(action: ActionJeu): boolean {
@@ -136,9 +136,6 @@ class EntreesSimulees implements Entrees {
   }
   cliquePresse(): boolean {
     return this.clicPresse;
-  }
-  cliqueMaintenu(): boolean {
-    return this.clicMaintenu;
   }
   pointeurBouge(): boolean {
     return this.bouge;
@@ -160,19 +157,15 @@ class EntreesSimulees implements Entrees {
     this.maintenues.delete(action);
   }
 
-  /** Enfonce le bouton en un point : une trame de clic, puis un maintien. */
+  /** Enfonce le bouton en un point : le clic d'une trame, comme dans le jeu. */
   cliquer(x: number, y: number): void {
     this.viser(x, y);
     this.clicPresse = true;
-    this.clicMaintenu = true;
   }
   /** Pose le pointeur sans appuyer : ce que fait une souris qui survole. */
   viser(x: number, y: number): void {
     if (!this.pointeur || this.pointeur.x !== x || this.pointeur.y !== y) this.bouge = true;
     this.pointeur = { x, y };
-  }
-  relacherClic(): void {
-    this.clicMaintenu = false;
   }
 }
 
@@ -262,6 +255,20 @@ function creerBanc(langue: 'fr' | 'en' = 'fr'): Banc {
       for (let i = 0; i < trames; i++) await trameAsync();
     },
   };
+}
+
+/**
+ * Descend jusqu'à une entrée de la racine du menu, puis la valide.
+ *
+ * Par nom et non par nombre de crans : l'ordre des entrées est une décision d'interface,
+ * qui a déjà changé deux fois. Compter les pressions faisait échouer six tests sans
+ * rapport à chaque réorganisation, en pointant l'entrée d'arrivée plutôt que la cause.
+ */
+async function ouvrirEntreeRacine(banc: Banc, cle: (typeof ENTREES_RACINE)[number]): Promise<void> {
+  const cible = ENTREES_RACINE.indexOf(cle);
+  expect(cible, `entrée ${cle} absente du menu`).toBeGreaterThanOrEqual(0);
+  for (let i = 0; i < cible; i++) await banc.agir('sud', 1);
+  await banc.agir('valider', 1);
 }
 
 /** Stockage local simulé : sans lui, toute sauvegarde tombe dans son `catch` silencieux. */
@@ -419,7 +426,7 @@ describe('menus', () => {
 
   it('parcourt tous les onglets sans erreur', async () => {
     const banc = bancMenu();
-    // Équipe (0), Sac (1), Carte (2), Terradex (3), Sauvegarde (4), Paramètres (5).
+    // Les six premières entrées de la racine, chacune ouvrant un écran ou un onglet.
     for (const parcours of [0, 1, 2, 3, 4, 5]) {
       for (let i = 0; i < parcours; i++) await banc.agir('sud', 2);
       appelsDessin = 0;
@@ -519,9 +526,7 @@ describe('réglages', () => {
   it('change la langue depuis le menu, sans écran intermédiaire', async () => {
     const banc = creerBanc('fr');
     banc.jeu.pousser(new SceneMenu());
-    // Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde, Langue.
-    for (let i = 0; i < 6; i++) await banc.agir('sud', 1);
-    await banc.agir('valider', 1);
+    await ouvrirEntreeRacine(banc, 'parametres.langue');
     expect(banc.jeu.langue).toBe('en');
     expect(banc.jeu.sommet?.nom, 'rien ne s’est empilé').toBe('menu');
     await banc.agir('valider', 1);
@@ -531,9 +536,7 @@ describe('réglages', () => {
   it('ouvre « comment jouer » depuis le menu', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneMenu());
-    // …, Langue, Encyclopédie, Comment jouer.
-    for (let i = 0; i < 8; i++) await banc.agir('sud', 1);
-    await banc.agir('valider', 1);
+    await ouvrirEntreeRacine(banc, 'parametres.commentJouer');
     expect(banc.jeu.sommet?.nom).toBe('aide');
     await banc.agir('annuler', 1);
     expect(banc.jeu.sommet?.nom).toBe('menu');
@@ -551,8 +554,7 @@ describe('réglages', () => {
       }),
     );
     banc.jeu.pousser(new SceneMenu());
-    // Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde.
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < ENTREES_RACINE.indexOf('menu.sauvegarde'); i++) {
       banc.entrees.presser('sud');
       banc.trame();
     }
@@ -1189,9 +1191,7 @@ describe('encyclopédie', () => {
   it('s’ouvre depuis le menu de pause, au même niveau que le reste', async () => {
     const banc = creerBanc();
     banc.jeu.pousser(new SceneMenu());
-    // Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde, Langue, Encyclopédie.
-    for (let i = 0; i < 7; i++) await banc.agir('sud', 1);
-    await banc.agir('valider', 1);
+    await ouvrirEntreeRacine(banc, 'encyclopedie.titre');
     expect(banc.jeu.sommet?.nom).toBe('encyclopedie');
   });
 
@@ -1296,8 +1296,7 @@ describe('fiche du Terradex', () => {
 
   /** Ouvre l'onglet Terradex depuis la racine du menu. */
   async function ouvrirTerradex(banc: Banc): Promise<void> {
-    for (let i = 0; i < 4; i++) await banc.agir('sud', 1);
-    await banc.agir('valider', 1);
+    await ouvrirEntreeRacine(banc, 'menu.terradex');
   }
 
   it('n’ouvre la fiche que d’une espèce déjà rencontrée', async () => {
@@ -1487,9 +1486,7 @@ describe('objets clés', () => {
     const banc = bancDansLeMonde();
     banc.jeu.pousser(new SceneMenu());
 
-    // Racine : Équipe, Réserve, Sac, Carte.
-    for (let i = 0; i < 3; i++) await banc.agir('sud', 1);
-    await banc.agir('valider', 1);
+    await ouvrirEntreeRacine(banc, 'menu.carte');
     expect(banc.jeu.sommet?.nom, 'sans l’objet, l’écran reste fermé').toBe('menu');
     expect(banc.jeu.dialogue.actif).toBe(true);
     banc.jeu.dialogue.vider();
@@ -1548,9 +1545,7 @@ describe('lisibilité du monde', () => {
     );
     banc.jeu.pousser(new SceneMenu());
 
-    // Racine : Équipe, Réserve, Sac, Carte, Terradex, Sauvegarde.
-    for (let i = 0; i < 5; i++) await banc.agir('sud', 1);
-    await banc.agir('valider', 1);
+    await ouvrirEntreeRacine(banc, 'menu.sauvegarde');
     // Première entrée de l'onglet : « Enregistrer maintenant ».
     await banc.agir('valider', 1);
 
@@ -2100,32 +2095,193 @@ describe('pointeur', () => {
     return banc;
   }
 
-  it('fait marcher le joueur vers le point maintenu', () => {
+  /**
+   * Une case sûre à quelques pas : praticable, sans herbes hautes ni objet sur le
+   * trajet. Sans cette précaution, une rencontre sauvage interromprait la marche et le
+   * test échouerait pour une raison qui n'a rien à voir avec ce qu'il mesure.
+   */
+  function cibleTranquille(banc: Banc): { x: number; y: number } | undefined {
+    const region = banc.jeu.monde.region(0);
+    const depart = banc.jeu.state.joueur;
+    const libre = (x: number, y: number): boolean => {
+      const tuile = lireTuile(region, x, y);
+      return (
+        !TILES[tuile].solid &&
+        !TILES[tuile].encounter &&
+        TILES[tuile].ledge === undefined &&
+        !region.entites.some((entite) => entite.x === x && entite.y === y)
+      );
+    };
+    for (const [dx, dy] of [
+      [0, 1],
+      [0, -1],
+      [1, 0],
+      [-1, 0],
+    ] as const) {
+      for (let distance = 4; distance >= 2; distance--) {
+        const segment = Array.from({ length: distance }, (_, index) => ({
+          x: depart.x + dx * (index + 1),
+          y: depart.y + dy * (index + 1),
+        }));
+        if (segment.every((c) => libre(c.x, c.y))) return segment[segment.length - 1];
+      }
+    }
+    return undefined;
+  }
+
+  it('marche tout seul jusqu’à la case cliquée', () => {
     const banc = bancMonde();
-    const depart = { ...banc.jeu.state.joueur };
+    const cible = cibleTranquille(banc);
+    expect(cible, 'le bourg de départ doit offrir quelques pas dégagés').toBeDefined();
 
-    // Le bas de l'écran, à l'aplomb du joueur : le bourg est ouvert au sud du départ.
-    banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 6);
-    for (let i = 0; i < 120; i++) banc.trame();
-    banc.entrees.relacherClic();
+    const vue = camera(banc);
+    banc.entrees.cliquer(cible!.x * 16 + 8 - vue.x, cible!.y * 16 + 8 - vue.y);
+    banc.trame();
+    // Le bouton relâché ne change rien : le trajet est posé, il se marche seul.
+    for (let i = 0; i < 200; i++) banc.trame();
 
-    expect(banc.jeu.state.joueur.direction).toBe('sud');
-    expect(banc.jeu.state.joueur.y).toBeGreaterThan(depart.y);
+    const { x, y } = banc.jeu.state.joueur;
+    expect({ x, y }).toEqual(cible);
   });
 
-  it('cesse de marcher dès que le bouton est relâché', () => {
+  it('contourne un obstacle au lieu de buter dessus', () => {
     const banc = bancMonde();
-    banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 6);
-    for (let i = 0; i < 60; i++) banc.trame();
+    const region = banc.jeu.monde.region(0);
+    const depart = { x: banc.jeu.state.joueur.x, y: banc.jeu.state.joueur.y };
 
-    banc.entrees.relacherClic();
-    // Un pas déjà engagé s'achève, mais aucun autre ne part.
-    for (let i = 0; i < 20; i++) banc.trame();
+    // Le test décide lui-même de ce qui est franchissable, sans rien demander à la
+    // scène : il cherche une destination dont le plus court chemin est *plus long* que
+    // la distance à vol d'oiseau, donc impossible à atteindre en ligne droite.
+    const libre = (c: { x: number; y: number }): boolean => {
+      const tuile = lireTuile(region, c.x, c.y);
+      return (
+        !TILES[tuile].solid &&
+        !TILES[tuile].encounter &&
+        TILES[tuile].ledge === undefined &&
+        !region.entites.some((entite) => entite.x === c.x && entite.y === c.y)
+      );
+    };
+    const voisines = (depuis: { x: number; y: number }) =>
+      [
+        { x: depuis.x, y: depuis.y - 1 },
+        { x: depuis.x, y: depuis.y + 1 },
+        { x: depuis.x - 1, y: depuis.y },
+        { x: depuis.x + 1, y: depuis.y },
+      ].filter(libre);
+
+    let detour: { x: number; y: number } | undefined;
+    let longueur = 0;
+    for (let rayon = 3; rayon <= 8 && !detour; rayon++) {
+      for (let dx = -rayon; dx <= rayon && !detour; dx++) {
+        const dy = rayon - Math.abs(dx);
+        for (const candidate of [
+          { x: depart.x + dx, y: depart.y + dy },
+          { x: depart.x + dx, y: depart.y - dy },
+        ]) {
+          if (!libre(candidate)) continue;
+          const chemin = trouverChemin(
+            depart,
+            (c) => c.x === candidate.x && c.y === candidate.y,
+            voisines,
+          );
+          if (!chemin || chemin.length <= rayon) continue;
+          detour = candidate;
+          longueur = chemin.length;
+          break;
+        }
+      }
+    }
+    expect(detour, 'le bourg doit offrir au moins un détour à faire').toBeDefined();
+
+    const vue = camera(banc);
+    banc.entrees.cliquer(detour!.x * 16 + 8 - vue.x, detour!.y * 16 + 8 - vue.y);
+    for (let i = 0; i < 40 * longueur; i++) banc.trame();
+
+    const { x, y } = banc.jeu.state.joueur;
+    expect({ x, y }, `${longueur} pas pour une distance de ${Math.abs(detour!.x - depart.x) + Math.abs(detour!.y - depart.y)}`).toEqual(detour);
+  });
+
+  it('abandonne le trajet dès qu’une direction est demandée au clavier', () => {
+    const banc = bancMonde();
+    const cible = cibleTranquille(banc);
+    expect(cible).toBeDefined();
+    const depart = { ...banc.jeu.state.joueur };
+
+    const vue = camera(banc);
+    banc.entrees.cliquer(cible!.x * 16 + 8 - vue.x, cible!.y * 16 + 8 - vue.y);
+    banc.trame();
+    for (let i = 0; i < 12; i++) banc.trame();
+
+    // Une touche reprend la main — celle qui fait demi-tour, pour que la divergence
+    // avec la destination soit nette — puis on la relâche : plus rien ne doit bouger.
+    const demiTour =
+      cible!.y > depart.y ? 'nord' : cible!.y < depart.y ? 'sud' : cible!.x > depart.x ? 'ouest' : 'est';
+    // Elle est tenue le temps qu'un pas s'achève : aucune entrée n'est lue pendant
+    // l'interpolation d'une case à l'autre, c'est la règle de la scène.
+    banc.entrees.tenir(demiTour);
+    for (let i = 0; i < 12; i++) banc.trame();
+    banc.entrees.relacher(demiTour);
+    for (let i = 0; i < 30; i++) banc.trame();
     const arret = { ...banc.jeu.state.joueur };
-    for (let i = 0; i < 120; i++) banc.trame();
+    for (let i = 0; i < 200; i++) banc.trame();
 
-    expect(banc.jeu.state.joueur.y).toBe(arret.y);
     expect(banc.jeu.state.joueur.x).toBe(arret.x);
+    expect(banc.jeu.state.joueur.y).toBe(arret.y);
+    expect(arret, 'et l’on s’est arrêté avant la destination').not.toEqual(
+      expect.objectContaining(cible!),
+    );
+  });
+
+  it('rejoint un interlocuteur lointain puis lui parle', () => {
+    const banc = bancMonde();
+    const region = banc.jeu.monde.region(0);
+
+    const libre = (x: number, y: number): boolean => {
+      const tuile = lireTuile(region, x, y);
+      return (
+        !TILES[tuile].solid &&
+        !TILES[tuile].encounter &&
+        TILES[tuile].ledge === undefined &&
+        !region.entites.some((entite) => entite.x === x && entite.y === y)
+      );
+    };
+
+    // Un interlocuteur, une case libre à côté de lui, et trois cases dégagées en amont
+    // d'où partir : c'est le trajet que le clic doit couvrir tout seul.
+    let depart: { x: number; y: number } | undefined;
+    let cible: { x: number; y: number } | undefined;
+    for (const entite of region.entites) {
+      if (entite.kind === 'objet' || entite.kind === 'dresseur') continue;
+      for (const [dx, dy] of [
+        [0, 1],
+        [0, -1],
+        [1, 0],
+        [-1, 0],
+      ] as const) {
+        const couloir = [1, 2, 3, 4].map((pas) => ({ x: entite.x + dx * pas, y: entite.y + dy * pas }));
+        if (!couloir.every((c) => libre(c.x, c.y))) continue;
+        depart = couloir[3];
+        cible = { x: entite.x, y: entite.y };
+        break;
+      }
+      if (depart) break;
+    }
+    expect(depart, 'le bourg doit offrir un interlocuteur abordable de loin').toBeDefined();
+
+    banc.jeu.state.joueur.x = depart!.x;
+    banc.jeu.state.joueur.y = depart!.y;
+    banc.trame();
+
+    const vue = camera(banc);
+    banc.entrees.cliquer(cible!.x * 16 + 8 - vue.x, cible!.y * 16 + 8 - vue.y);
+    for (let i = 0; i < 200 && !banc.jeu.dialogue.actif; i++) banc.trame();
+
+    expect(banc.jeu.dialogue.actif, 'la conversation s’engage à l’arrivée').toBe(true);
+    const { x, y } = banc.jeu.state.joueur;
+    expect(
+      Math.abs(x - cible!.x) + Math.abs(y - cible!.y),
+      'et l’on s’est arrêté juste à côté, pas dessus',
+    ).toBe(1);
   });
 
   it('parle à un PNJ voisin qu’on clique', () => {
@@ -2230,12 +2386,10 @@ describe('pointeur', () => {
 
     banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 20);
     banc.trame();
-    banc.entrees.relacherClic();
     for (let i = 0; i < 60; i++) banc.trame();
 
     banc.entrees.cliquer(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT - 20);
     banc.trame();
-    banc.entrees.relacherClic();
     banc.trame();
 
     expect(banc.jeu.dialogue.actif).toBe(false);
@@ -2282,12 +2436,10 @@ describe('pointeur', () => {
     const hautDuPanneau = VIRTUAL_HEIGHT - 52 + 12;
     banc.entrees.cliquer(40, hautDuPanneau);
     banc.trame();
-    banc.entrees.relacherClic();
     banc.trame();
 
     banc.entrees.cliquer(VIRTUAL_WIDTH - 100, hautDuPanneau);
     banc.trame();
-    banc.entrees.relacherClic();
     for (let i = 0; i < 10; i++) banc.trame();
 
     const [premiere, seconde] = banc.jeu.state.equipe[0]!.moves;
@@ -2303,8 +2455,7 @@ describe('pointeur', () => {
     const cliquer = async (x: number, y: number): Promise<void> => {
       banc.entrees.cliquer(x, y);
       await banc.trameAsync();
-      banc.entrees.relacherClic();
-      for (let i = 0; i < 3; i++) await banc.trameAsync();
+        for (let i = 0; i < 3; i++) await banc.trameAsync();
     };
 
     // Sans sauvegarde, « Nouvelle partie » est la première entrée, dessinée à y = 70.

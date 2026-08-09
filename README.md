@@ -15,7 +15,7 @@ opens the sanctum, where the creatures that appear nowhere else can finally be c
 | | |
 |---|---|
 | **Keyboard** | Arrows or WASD to move · `Enter` / `E` to talk, read, pick up · `Escape` or `M` for the menu |
-| **Mouse** | Hold the button to walk toward the cursor · click a neighbouring character to talk · click any row, creature or attack to pick it |
+| **Mouse** | Click a tile and the walk there happens on its own, around whatever is in the way · click a character or the water to go over and interact · click any row, creature or attack to pick it |
 | **Touch** | A D-pad and two buttons appear on devices without a mouse |
 | **Settings** | Language, help and the encyclopedia sit directly in the title screen and the pause menu |
 
@@ -103,7 +103,7 @@ You can also export a single creature and import it into another game.
 
 ## Tests
 
-300 tests, run in continuous integration before every deploy. The useful ones don't check
+316 tests, run in continuous integration before every deploy. The useful ones don't check
 details, they check **invariants** — which matters more now that the world itself varies:
 
 - no seed produces a region whose exit is unreachable — verified across 60 seeds;
@@ -126,6 +126,8 @@ details, they check **invariants** — which matters more now that the world its
   creature you point it at and refuses when none can; the map screen stays shut until
   you find the map;
 - a battle interrupted by closing the tab comes back exactly as it was;
+- a click walks the player to the tile, around whatever blocks the straight line, and
+  stops beside a character to talk instead of on top of them;
 - every battle terminates, whichever two creatures are involved;
 - an exported then reimported game returns an identical state, and the world rebuilds
   byte for byte from the seed;
@@ -139,9 +141,10 @@ outside the frame fails the build instead of shipping.
 
 - **No building interiors.** Doors are scenery and services keep an outdoor stall.
   Modelling interiors would have doubled the world code for little gain.
-- **Integer scaling only.** The canvas scales by whole numbers so pixels stay square;
-  both virtual dimensions adapt so the game fills the screen instead of floating in
-  black bands. The only margin left is the remainder of an integer division.
+- **No pixel-perfect scaling on phones.** The canvas scales by whole numbers on an
+  ordinary display, so pixels stay square. On a high-density one it does not: rounding
+  down cost a third of the content size, and at three physical pixels per CSS pixel the
+  irregularity is invisible where the lost legibility was not.
 - **Trading is trust-based**, as described above.
 
 ## Licence

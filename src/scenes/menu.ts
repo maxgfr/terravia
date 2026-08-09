@@ -81,23 +81,28 @@ function resistancesDe(types: readonly ElementType[]): ElementType[] {
 type Onglet = 'racine' | 'equipe' | 'fiche' | 'reserve' | 'sac' | 'terradex' | 'espece' | 'sauvegarde';
 
 /**
- * Tout au même niveau.
+ * Tout au même niveau, groupé par ce à quoi ça sert.
  *
  * Les réglages vivaient dans un écran poussé par-dessus celui-ci : un menu dans un menu,
  * pour quatre entrées qui tiennent ici. La langue se bascule sur place, le reste ouvre un
  * écran qui a sa raison d'être — l'aide, l'encyclopédie.
+ *
+ * L'ordre suit trois blocs : ce qu'on emporte, ce qu'on consulte, ce qui touche à la
+ * partie elle-même. L'encyclopédie et l'aide suivent donc le Terradex, avec lequel elles
+ * forment la documentation du jeu, et la langue descend contre « Fermer », loin de ce
+ * qu'on ouvre en cours de partie.
  */
-const ENTREES_RACINE = [
+export const ENTREES_RACINE = [
   'menu.equipe',
   'menu.reserve',
   'menu.sac',
   'menu.carte',
   'menu.terradex',
-  'menu.sauvegarde',
-  'parametres.langue',
   'encyclopedie.titre',
   'parametres.commentJouer',
+  'menu.sauvegarde',
   'parametres.recommencer',
+  'parametres.langue',
   'menu.fermer',
 ] as const;
 const ENTREES_SAUVEGARDE = [
