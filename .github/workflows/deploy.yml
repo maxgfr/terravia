@@ -47,12 +47,15 @@ jobs:
       # `git status --porcelain` plutôt que `git diff` : ce dernier ne voit que les
       # fichiers déjà suivis. Ajouter une planche au générateur passait donc au vert,
       # alors que le fichier n'était commité nulle part.
+      # Le contrôle porte sur tout `public/` et non sur le seul `public/art/` : les icônes
+      # de l'application sont produites par le même générateur, mais vivent à la racine du
+      # site, là où le navigateur les réclame.
       - name: L’art commité est-il à jour ?
         run: |
           npm run art
-          if [ -n "$(git status --porcelain public/art)" ]; then
-            git status --porcelain public/art
-            echo "::error::public/art/ n’est plus synchronisé. Lancez « npm run art » et committez le résultat."
+          if [ -n "$(git status --porcelain public)" ]; then
+            git status --porcelain public
+            echo "::error::public/ n’est plus synchronisé. Lancez « npm run art » et committez le résultat."
             exit 1
           fi
 

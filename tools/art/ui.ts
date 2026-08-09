@@ -10,6 +10,7 @@ import { ELEMENT_TYPES, type ElementType } from '../../src/data/types.ts';
 import { TYPE_PALETTES, UI_COLORS } from './palette.ts';
 import {
   createSurface,
+  fillCircle,
   fillEllipse,
   fillRect,
   hex,
@@ -322,4 +323,51 @@ export function buildIcons(): MutableSurface {
     }
   });
   return sheet;
+}
+
+// ── Icône de l'application ───────────────────────────────────────────────────
+
+/**
+ * Les tailles produites. 32 pour l'onglet, 180 pour l'écran d'accueil iOS, 512 pour le
+ * manifeste. Le dessin est le même, tracé à l'échelle demandée plutôt qu'agrandi : un
+ * pixel art mis à l'échelle par le navigateur baverait.
+ */
+export const ICONE_TAILLES = [32, 180, 512] as const;
+
+/**
+ * L'icône de Terravia : une gemme claire sur fond sombre, cerclée.
+ *
+ * Il n'y en avait aucune. Chaque visite produisait un 404 sur `/terravia/favicon.ico` et
+ * l'onglet affichait le glyphe par défaut du navigateur — pour un jeu dont tout le mode
+ * de diffusion est le partage d'un lien.
+ */
+export function buildIcone(taille: number): MutableSurface {
+  const surface = createSurface(taille, taille, UI_COLORS.backdrop);
+  const centre = (taille - 1) / 2;
+
+  // Un anneau clair : sur le fond sombre du jeu, la bordure des panneaux (#2b2b33) ne
+  // se distinguait pas du fond (#0b0f14), et l'icône n'était qu'un losange flottant.
+  const rayonExterne = taille * 0.42;
+  fillCircle(surface, centre, centre, rayonExterne, UI_COLORS.panelShadow);
+  fillCircle(surface, centre, centre, rayonExterne - Math.max(1, taille * 0.05), UI_COLORS.backdrop);
+
+  // La gemme : un losange, facette claire en haut, facette sombre en bas.
+  const rayon = taille * 0.28;
+  for (let y = 0; y < taille; y++) {
+    for (let x = 0; x < taille; x++) {
+      const dx = Math.abs(x - centre);
+      const dy = Math.abs(y - centre);
+      if (dx / rayon + dy / rayon > 1) continue;
+      const hauteur = (y - centre) / rayon;
+      const couleur =
+        hauteur < -0.25
+          ? UI_COLORS.panelHighlight
+          : hauteur < 0.25
+            ? UI_COLORS.selection
+            : shade(UI_COLORS.selection, -0.35);
+      setPixel(surface, x, y, couleur);
+    }
+  }
+
+  return surface;
 }

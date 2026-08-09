@@ -101,14 +101,19 @@ describe('sprites de créatures', () => {
 describe('planches publiées', () => {
   it('recense toutes les planches dans le manifeste', () => {
     const manifest = readJson<{ entries: Array<{ file: string; bytes: number }> }>('manifest.json');
+    // Les chemins sont relatifs à `public/` : les planches vivent dans `art/`, les icônes
+    // de l'application à la racine, là où le navigateur les réclame.
     const attendus = [
-      'font.png',
-      'tileset.png',
-      'frame.png',
-      'badges.png',
-      'icons.png',
-      'characters.png',
-      'creatures.png',
+      'art/font.png',
+      'art/tileset.png',
+      'art/frame.png',
+      'art/badges.png',
+      'art/icons.png',
+      'art/characters.png',
+      'art/creatures.png',
+      'icone-32.png',
+      'icone-180.png',
+      'icone-512.png',
     ];
     const fichiers = manifest.entries.map((entry) => entry.file);
     for (const attendu of attendus) expect(fichiers).toContain(attendu);

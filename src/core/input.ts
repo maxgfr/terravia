@@ -36,7 +36,8 @@ const TOUCHES: Record<string, ActionJeu> = {
   Backspace: 'annuler',
   KeyX: 'annuler',
   KeyM: 'menu',
-  Tab: 'menu',
+  // Pas de `Tab` : il est le seul moyen d'atteindre les boutons tactiles au clavier, et
+  // l'intercepter enfermait le focus dans la page — on ne pouvait plus en sortir.
 };
 
 /** Position dans le repère virtuel du jeu, celui dans lequel les scènes dessinent. */
@@ -102,6 +103,10 @@ export function creerEntrees(hote: HTMLElement, cible?: CiblePointeur): Entrees 
   };
 
   const surTouche = (evenement: KeyboardEvent): void => {
+    // Un raccourci du navigateur n'appartient pas au jeu. `S`, `D`, `E` et `M` sont
+    // mappés : sans ce filtre, Cmd+S, Cmd+D et Ctrl+A étaient purement et simplement
+    // annulés dans la page.
+    if (evenement.ctrlKey || evenement.metaKey || evenement.altKey) return;
     const action = TOUCHES[evenement.code];
     if (!action) return;
     // Les flèches et l'espace font défiler la page : dans un jeu, jamais.
@@ -244,6 +249,9 @@ function construireTactile(
       <button data-action="valider" aria-label="Valider">A</button>
     </div>`;
   hote.appendChild(conteneur);
+  // Un appui long sur le pavé directionnel ouvrait le menu contextuel d'Android — ou la
+  // sélection de texte — au beau milieu d'un déplacement.
+  conteneur.addEventListener('contextmenu', (evenement) => evenement.preventDefault());
 
   const boutons: BoutonTactile[] = [];
   for (const element of conteneur.querySelectorAll<HTMLElement>('button[data-action]')) {

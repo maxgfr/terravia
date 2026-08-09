@@ -20,9 +20,11 @@ import { buildTileset, TILE_SIZE } from './tiles.ts';
 import {
   BADGE_HEIGHT,
   BADGE_WIDTH,
+  ICONE_TAILLES,
   INSIGNE_SIZE,
   buildBadges,
   buildFrame,
+  buildIcone,
   buildIcons,
   buildInsignes,
   FRAME_SLICE,
@@ -41,7 +43,8 @@ import { buildCreatureSheet, CREATURE_SIZE, CREATURE_VIEWS } from './creature.ts
 import { ELEMENT_TYPES } from '../../src/data/types.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const OUTPUT = join(ROOT, 'public', 'art');
+const PUBLIC = join(ROOT, 'public');
+const OUTPUT = join(PUBLIC, 'art');
 
 interface Entry {
   file: string;
@@ -53,19 +56,23 @@ interface Entry {
 
 const entries: Entry[] = [];
 
-function emit(name: string, surface: Surface): void {
+/**
+ * Écrit une planche. `dossier` vaut `public/art/` sauf pour les icônes de l'application,
+ * que le navigateur réclame à la racine du site.
+ */
+function emit(name: string, surface: Surface, dossier: string = OUTPUT): void {
   const png = encodePng(surface);
-  const path = join(OUTPUT, name);
+  const path = join(dossier, name);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, png);
   entries.push({
-    file: name,
+    file: relative(PUBLIC, path),
     width: surface.width,
     height: surface.height,
     bytes: png.length,
     sha256: createHash('sha256').update(png).digest('hex').slice(0, 16),
   });
-  console.log(`  ${name.padEnd(24)} ${surface.width}×${surface.height}  ${formatBytes(png.length)}`);
+  console.log(`  ${relative(PUBLIC, path).padEnd(24)} ${surface.width}×${surface.height}  ${formatBytes(png.length)}`);
 }
 
 function formatBytes(bytes: number): string {
@@ -125,6 +132,13 @@ writeJson('creatures.json', {
   views: CREATURE_VIEWS,
   order: creatures.order,
 });
+
+// ── Icône de l'application ───────────────────────────────────────────────────
+// Elle ne vit pas dans `art/` : le navigateur la réclame à la racine du site, et le
+// manifeste comme index.html y renvoient par un chemin fixe.
+for (const taille of ICONE_TAILLES) {
+  emit(`icone-${taille}.png`, buildIcone(taille), PUBLIC);
+}
 
 // ── Manifeste ────────────────────────────────────────────────────────────────
 writeJson('manifest.json', { generatedBy: 'npm run art', entries });

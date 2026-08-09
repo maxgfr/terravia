@@ -135,6 +135,26 @@ async function demarrer(): Promise<void> {
 
   // Dernier filet : la partie est enregistrée si l'onglet se ferme.
   window.addEventListener('pagehide', () => jeu.sauvegarderLocalement());
+
+  enregistrerServiceWorker();
+}
+
+/**
+ * Rend le jeu jouable hors ligne, une fois qu'il tourne.
+ *
+ * L'enregistrement vient après le démarrage et n'est jamais attendu : un navigateur qui
+ * refuse les service workers — navigation privée, contexte non sécurisé — ne doit pas
+ * empêcher de jouer. L'échec est donc silencieux, contrairement à ce qui touche la
+ * sauvegarde, dont la perte, elle, se voit.
+ */
+function enregistrerServiceWorker(): void {
+  if (!('serviceWorker' in navigator)) return;
+  // `import.meta.env.DEV` : en développement, un service worker garderait en cache des
+  // fichiers que Vite vient de remplacer à chaud.
+  if (import.meta.env.DEV) return;
+  void navigator.serviceWorker
+    .register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
+    .catch(() => undefined);
 }
 
 installerFiletDeSecurite();

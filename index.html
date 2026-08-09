@@ -6,12 +6,36 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#0d1117" />
+    <!-- Aligné sur --bg : la barre d'outils de Chrome mobile affichait une couture. -->
+    <meta name="theme-color" content="#0b0f14" />
+    <!-- La langue par défaut du jeu est l'anglais ; `main.ts` corrige `lang` et cette
+         description reste celle que liront les moteurs de recherche. -->
     <meta
       name="description"
-      content="Terravia — RPG de capture de créatures dans un monde généré procéduralement. Jouable dans le navigateur, sauvegarde exportable en JSON."
+      content="Terravia — a creature-collecting RPG in a procedurally generated world. Runs in your browser: no server, no account, no install."
     />
     <title>Terravia</title>
+
+    <link rel="icon" type="image/png" sizes="32x32" href="./icone-32.png" />
+    <link rel="apple-touch-icon" href="./icone-180.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+
+    <!-- Le jeu se partage par un lien : sans ces balises, l'aperçu était nu. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Terravia" />
+    <meta
+      property="og:description"
+      content="A creature-collecting RPG in a procedurally generated world. The whole run fits in a seed."
+    />
+    <meta property="og:url" content="https://maxgfr.github.io/terravia/" />
+    <meta property="og:image" content="https://maxgfr.github.io/terravia/icone-512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Terravia" />
+    <meta
+      name="twitter:description"
+      content="A creature-collecting RPG in a procedurally generated world. The whole run fits in a seed."
+    />
+    <meta name="twitter:image" content="https://maxgfr.github.io/terravia/icone-512.png" />
     <style>
       :root {
         color-scheme: dark;
@@ -96,22 +120,28 @@
       /* Contrôles tactiles.
          Ils vivent dans le DOM, pas sur le canvas : ils profitent ainsi de la taille
          réelle de l'écran plutôt que de la résolution virtuelle de 320 pixels, et
-         restent assez grands pour le pouce. Ils disparaissent dès qu'un pointeur fin
-         est disponible — sur desktop, ils n'apparaissent jamais. */
+         restent assez grands pour le pouce. */
       .tactile {
         flex: 0 0 auto;
-        /* Zone sûre latérale comprise : sur un téléphone à encoche, les boutons se
-           collaient au bord arrondi. */
-        padding-left: max(1rem, env(safe-area-inset-left));
-        padding-right: max(1rem, env(safe-area-inset-right));
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
-        padding: 0.5rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+        /* Les zones sûres tiennent dans le raccourci. Deux règles `padding-left` et
+           `padding-right` le précédaient : ce raccourci les écrasait, si bien que la
+           correction annoncée pour les téléphones à encoche n'avait aucun effet et que
+           le pavé directionnel courait toujours sous le coin arrondi. */
+        padding: 0.5rem max(1rem, env(safe-area-inset-right)) calc(0.75rem + env(safe-area-inset-bottom))
+          max(1rem, env(safe-area-inset-left));
         pointer-events: none;
         user-select: none;
+        /* Un appui long sur une touche ouvrait le menu contextuel d'Android en plein jeu. */
+        -webkit-touch-callout: none;
       }
-      @media (pointer: fine) {
+      /* On masque les contrôles quand *aucun* pointeur grossier n'existe, et non dès
+         qu'un pointeur fin est disponible : un portable tactile ou un iPad avec trackpad
+         se déclare « fin » et perdait son pavé directionnel alors que l'écran répond au
+         doigt. */
+      @media not all and (any-pointer: coarse) {
         .tactile {
           display: none;
         }
