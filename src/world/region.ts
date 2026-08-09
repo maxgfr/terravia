@@ -387,9 +387,16 @@ function caseLibre(contexte: Contexte, vise: Position, rayonMax = 12): Position 
   return null;
 }
 
-const DIALOGUES_VILLAGEOIS = 8;
-const DIALOGUES_DRESSEUR = 6;
-const DIALOGUES_PANNEAU = 5;
+/**
+ * Combien de répliques existent pour chaque famille de dialogue.
+ *
+ * Exportées parce que le test de complétude du catalogue les recopiait : la copie avait
+ * déjà divergé, et augmenter une de ces constantes livrait des clés manquantes sans que
+ * rien ne s'en aperçoive.
+ */
+export const DIALOGUES_VILLAGEOIS = 8;
+export const DIALOGUES_DRESSEUR = 6;
+export const DIALOGUES_PANNEAU = 5;
 
 /**
  * Compose une équipe de dresseur.

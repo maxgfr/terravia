@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { CHARSET } from '../tools/art/font.ts';
 import { LANGUES, catalogue, clesTextes, estCleConnue, traduire } from '../src/i18n/index.ts';
 import { LANGUE_PAR_DEFAUT, langueParDefaut } from '../src/i18n/preference.ts';
+import {
+  DIALOGUES_DRESSEUR,
+  DIALOGUES_PANNEAU,
+  DIALOGUES_VILLAGEOIS,
+} from '../src/world/region.ts';
 
 describe('langue au démarrage', () => {
   it('démarre en anglais quand rien n’a été choisi', () => {
@@ -82,10 +87,10 @@ describe('catalogue de traductions', () => {
       'dialogue.champion',
       'dialogue.championVaincu',
       'dialogue.panneau.bourg',
-      ...Array.from({ length: 8 }, (_, i) => `dialogue.villageois.${i}`),
-      ...Array.from({ length: 6 }, (_, i) => `dialogue.dresseur.${i}`),
-      ...Array.from({ length: 6 }, (_, i) => `dialogue.dresseurVaincu.${i}`),
-      ...Array.from({ length: 5 }, (_, i) => `dialogue.panneau.${i}`),
+      ...Array.from({ length: DIALOGUES_VILLAGEOIS }, (_, i) => `dialogue.villageois.${i}`),
+      ...Array.from({ length: DIALOGUES_DRESSEUR }, (_, i) => `dialogue.dresseur.${i}`),
+      ...Array.from({ length: DIALOGUES_DRESSEUR }, (_, i) => `dialogue.dresseurVaincu.${i}`),
+      ...Array.from({ length: DIALOGUES_PANNEAU }, (_, i) => `dialogue.panneau.${i}`),
     ];
     for (const cle of clesDuMonde) {
       expect(estCleConnue(cle), `clé absente : ${cle}`).toBe(true);

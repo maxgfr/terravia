@@ -17,7 +17,8 @@ import { installerDepotFichier, lireLanguePreferee } from './save/storage.ts';
 import { SceneTitre } from './scenes/titre.ts';
 import { traiterImport } from './scenes/partie.ts';
 import { Peintre } from './ui/draw.ts';
-import { langueParDefaut } from './i18n/preference.ts';
+import { appliquerLangueAuDocument, langueParDefaut } from './i18n/preference.ts';
+import { traduire } from './i18n/index.ts';
 
 function afficherErreur(message: string): void {
   const boot = document.getElementById('boot');
@@ -55,6 +56,10 @@ async function demarrer(): Promise<void> {
   // chemin le plus court entre « j'ai reçu une sauvegarde » et « je joue ».
   installerDepotFichier((contenu) => traiterImport(jeu, contenu));
 
+  // La langue est connue : la page peut enfin l'annoncer. Elle était figée à « fr » dans
+  // index.html, alors que le jeu s'ouvre en anglais.
+  appliquerLangueAuDocument(jeu.langue, jeu.t('a11y.canvas'));
+
   const boucle = createLoop({
     update: (step) => {
       jeu.mettreAJour(step);
@@ -88,6 +93,9 @@ async function demarrer(): Promise<void> {
 
 demarrer().catch((erreur: unknown) => {
   const message = erreur instanceof Error ? erreur.message : String(erreur);
-  afficherErreur(`Terravia n’a pas pu démarrer.\n${message}`);
+  // Le catalogue n'est peut-être pas chargé : on lit la préférence directement, et la
+  // phrase reste dans la langue du joueur plutôt qu'en français quoi qu'il arrive.
+  const langue = langueParDefaut(lireLanguePreferee());
+  afficherErreur(`${traduire(langue, 'boot.echec')}\n${message}`);
   console.error(erreur);
 });

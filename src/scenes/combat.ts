@@ -522,7 +522,7 @@ export class SceneCombat implements Scene {
         const talent = params?.['talent'];
         const lisibles =
           typeof talent === 'string' && talent in TALENTS
-            ? { ...params, talent: TALENTS[talent as TalentId].nom[jeu.langue] }
+            ? { ...params, talent: jeu.nomTalent(talent as TalentId) }
             : params;
         return jeu.t(evenement.cle as never, lisibles);
       }

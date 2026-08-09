@@ -24,7 +24,8 @@ import {
   type StatBlock,
 } from '../data/stats.ts';
 import { TALENT_IDS, type TalentId } from '../data/talents.ts';
-import { LANGUES } from '../i18n/index.ts';
+import { LANGUES, traduire, type CleTexte, type Langue } from '../i18n/index.ts';
+import { LANGUE_PAR_DEFAUT } from '../i18n/preference.ts';
 import { DIRECTIONS } from '../world/characterIds.ts';
 import { REGIONS_MAX } from '../world/worldgen.ts';
 import {
@@ -38,46 +39,87 @@ import {
   type SaveFile,
 } from './format.ts';
 
+/**
+ * Le motif d'un rejet : une clé de texte et ses paramètres, jamais une phrase.
+ *
+ * Ces messages traversent l'écran-titre et l'écran d'import, tous deux traduits. Écrits
+ * en français dans le code, ils s'affichaient tels quels à un joueur anglophone — au
+ * milieu d'une coquille anglaise, et alors même que le README vante précisément cette
+ * fonctionnalité en anglais.
+ *
+ * Le `chemin` (`equipe[0].moves[0].id`) reste hors traduction : c'est un repère technique
+ * dans le fichier, pas de la prose.
+ */
+export interface MotifValidation {
+  readonly cle: CleTexte;
+  readonly params?: Readonly<Record<string, string | number>>;
+  /**
+   * Le motif imbriqué, quand un rejet en explique un autre — « combat en cours abandonné,
+   * parce que `combat.etagesJoueur.attaque` devrait être entre −6 et 6 ». Sans lui, le
+   * détail qui rend l'avertissement exploitable se perdait.
+   */
+  readonly detail?: MotifValidation;
+}
+
+/**
+ * Le message qu'un joueur de cette langue lira. Seul endroit qui met un motif en phrase :
+ * l'interface et les tests s'en servent tous les deux, et ne peuvent donc pas diverger.
+ */
+export function rendreMotif(langue: Langue, motif: MotifValidation): string {
+  const tete = traduire(langue, motif.cle, motif.params);
+  return motif.detail ? `${tete} : ${rendreMotif(langue, motif.detail)}` : tete;
+}
+
 export type Validation<T> =
-  | { readonly ok: true; readonly valeur: T; readonly avertissements: readonly string[] }
-  | { readonly ok: false; readonly raison: string };
+  | { readonly ok: true; readonly valeur: T; readonly avertissements: readonly MotifValidation[] }
+  | { readonly ok: false; readonly raison: MotifValidation };
 
-class ErreurValidation extends Error {}
+class ErreurValidation extends Error {
+  constructor(readonly motif: MotifValidation) {
+    super(motif.cle);
+  }
+}
 
-function echouer(message: string): never {
-  throw new ErreurValidation(message);
+function echouer(cle: CleTexte, params?: Readonly<Record<string, string | number>>): never {
+  throw new ErreurValidation({ cle, params });
 }
 
 function objet(valeur: unknown, chemin: string): Record<string, unknown> {
   if (typeof valeur !== 'object' || valeur === null || Array.isArray(valeur)) {
-    echouer(`${chemin} devrait être un objet`);
+    echouer('sauvegarde.motif.objet', { chemin });
   }
   return valeur as Record<string, unknown>;
 }
 
 function tableau(valeur: unknown, chemin: string): unknown[] {
-  if (!Array.isArray(valeur)) echouer(`${chemin} devrait être une liste`);
+  if (!Array.isArray(valeur)) echouer('sauvegarde.motif.liste', { chemin });
   return valeur;
 }
 
 function texte(valeur: unknown, chemin: string, maxLongueur = 200): string {
-  if (typeof valeur !== 'string') echouer(`${chemin} devrait être du texte`);
-  if (valeur.length > maxLongueur) echouer(`${chemin} dépasse ${maxLongueur} caractères`);
+  if (typeof valeur !== 'string') echouer('sauvegarde.motif.texte', { chemin });
+  if (valeur.length > maxLongueur) {
+    echouer('sauvegarde.motif.tropLong', { chemin, max: maxLongueur });
+  }
   return valeur;
 }
 
 function entier(valeur: unknown, chemin: string, min: number, max: number): number {
   if (typeof valeur !== 'number' || !Number.isFinite(valeur)) {
-    echouer(`${chemin} devrait être un nombre`);
+    echouer('sauvegarde.motif.nombre', { chemin });
   }
   const arrondi = Math.round(valeur);
-  if (arrondi < min || arrondi > max) echouer(`${chemin} devrait être entre ${min} et ${max}`);
+  if (arrondi < min || arrondi > max) {
+    echouer('sauvegarde.motif.intervalle', { chemin, min, max });
+  }
   return arrondi;
 }
 
 function parmi<T extends string>(valeur: unknown, chemin: string, permis: readonly T[]): T {
   const brut = texte(valeur, chemin, 64);
-  if (!permis.includes(brut as T)) echouer(`${chemin} : valeur inconnue « ${brut} »`);
+  if (!permis.includes(brut as T)) {
+    echouer('sauvegarde.motif.inconnue', { chemin, valeur: brut });
+  }
   return brut as T;
 }
 
@@ -99,7 +141,7 @@ function listeUnique<T extends string>(valeur: unknown, chemin: string, permis: 
 
 function listeTextes(valeur: unknown, chemin: string, maxElements = 500): string[] {
   const brut = tableau(valeur, chemin);
-  if (brut.length > maxElements) echouer(`${chemin} contient trop d’entrées`);
+  if (brut.length > maxElements) echouer('sauvegarde.motif.tropDEntrees', { chemin });
   return brut.map((element, index) => texte(element, `${chemin}[${index}]`, 80));
 }
 
@@ -109,8 +151,8 @@ function creature(valeur: unknown, chemin: string): CreatureEnregistree {
   const niveau = entier(source.niveau, `${chemin}.niveau`, 1, 100);
 
   const moves = tableau(source.moves, `${chemin}.moves`);
-  if (moves.length === 0) echouer(`${chemin}.moves ne peut pas être vide`);
-  if (moves.length > 4) echouer(`${chemin}.moves dépasse quatre attaques`);
+  if (moves.length === 0) echouer('sauvegarde.motif.attaquesVides', { chemin });
+  if (moves.length > 4) echouer('sauvegarde.motif.attaquesTrop', { chemin });
   const attaques = moves.map((slot, index) => {
     const emplacement = objet(slot, `${chemin}.moves[${index}]`);
     const id = parmi<MoveId>(emplacement.id, `${chemin}.moves[${index}].id`, MOVE_IDS);
@@ -166,17 +208,17 @@ function combatInterrompu(valeur: unknown, equipe: readonly CreatureEnregistree[
   const source = objet(valeur, 'combat');
 
   const adversairesBruts = tableau(source.adversaires, 'combat.adversaires');
-  if (adversairesBruts.length === 0) echouer('combat.adversaires ne peut pas être vide');
-  if (adversairesBruts.length > 6) echouer('combat.adversaires dépasse six créatures');
+  if (adversairesBruts.length === 0) echouer('sauvegarde.motif.adversairesVides');
+  if (adversairesBruts.length > 6) echouer('sauvegarde.motif.adversairesTrop');
   const adversaires = adversairesBruts.map((membre, index) =>
     creature(membre, `combat.adversaires[${index}]`),
   );
 
   const indexAdverse = entier(source.indexAdverse ?? 0, 'combat.indexAdverse', 0, adversaires.length - 1);
-  if (adversaires[indexAdverse]!.pv <= 0) echouer('l’adversaire en jeu est hors de combat');
+  if (adversaires[indexAdverse]!.pv <= 0) echouer('sauvegarde.motif.adversaireKo');
 
   const indexJoueur = entier(source.indexJoueur ?? 0, 'combat.indexJoueur', 0, equipe.length - 1);
-  if (equipe[indexJoueur]!.pv <= 0) echouer('la créature en jeu est hors de combat');
+  if (equipe[indexJoueur]!.pv <= 0) echouer('sauvegarde.motif.creatureKo');
 
   return {
     genre: parmi(source.genre ?? 'sauvage', 'combat.genre', ['sauvage', 'dresseur'] as const),
@@ -195,13 +237,17 @@ function combatInterrompu(valeur: unknown, equipe: readonly CreatureEnregistree[
 }
 
 function enveloppe(brut: unknown, format: string): Record<string, unknown> {
-  const document = objet(brut, 'le document');
+  const document = objet(brut, 'document');
   if (document.format !== format) {
-    echouer(`ce fichier n’est pas un document « ${format} »`);
+    echouer('sauvegarde.motif.mauvaisFormat', { format });
   }
-  const version = entier(document.version, 'version', 1, VERSION_ACTUELLE);
+  // La borne haute est volontairement large. Plafonner à `VERSION_ACTUELLE` faisait
+  // échouer `entier` en premier, et le message qui suit — le seul qui explique vraiment
+  // ce qui se passe — n'était jamais atteint : une sauvegarde v3 s'entendait répondre
+  // « version devrait être entre 1 et 2 ».
+  const version = entier(document.version, 'version', 1, 9999);
   if (version > VERSION_ACTUELLE) {
-    echouer(`il vient d’une version plus récente du jeu (v${version})`);
+    echouer('sauvegarde.motif.versionFuture', { version });
   }
   return document;
 }
@@ -210,28 +256,28 @@ function enveloppe(brut: unknown, format: string): Record<string, unknown> {
 export function validerPartie(brut: unknown): Validation<SaveFile> {
   try {
     const document = enveloppe(brut, FORMAT_PARTIE);
-    const avertissements: string[] = [];
+    const avertissements: MotifValidation[] = [];
     if (!checksumValide(document)) {
       // Une somme de contrôle fausse signale une modification manuelle, pas forcément
       // un fichier inutilisable : on prévient, on ne refuse pas.
-      avertissements.push('somme de contrôle incorrecte');
+      avertissements.push({ cle: 'sauvegarde.motif.checksum' });
     }
 
     const joueur = objet(document.joueur, 'joueur');
     const refuge = objet(joueur.refuge ?? {}, 'joueur.refuge');
 
     const equipeBrute = tableau(document.equipe, 'equipe');
-    if (equipeBrute.length === 0) echouer('l’équipe est vide');
-    if (equipeBrute.length > 6) echouer('l’équipe dépasse six créatures');
+    if (equipeBrute.length === 0) echouer('sauvegarde.motif.equipeVide');
+    if (equipeBrute.length > 6) echouer('sauvegarde.motif.equipeTrop');
     const reserveBrute = tableau(document.reserve ?? [], 'reserve');
-    if (reserveBrute.length > 300) echouer('la réserve dépasse trois cents créatures');
+    if (reserveBrute.length > 300) echouer('sauvegarde.motif.reserveTrop');
 
     const equipe = equipeBrute.map((valeur, index) => creature(valeur, `equipe[${index}]`));
     const reserve = reserveBrute.map((valeur, index) => creature(valeur, `reserve[${index}]`));
 
     const uids = new Set<string>();
     for (const membre of [...equipe, ...reserve]) {
-      if (uids.has(membre.uid)) echouer(`deux créatures partagent l’identifiant « ${membre.uid} »`);
+      if (uids.has(membre.uid)) echouer('sauvegarde.motif.uidDouble', { uid: membre.uid });
       uids.add(membre.uid);
     }
 
@@ -253,7 +299,7 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
         combat = combatInterrompu(document.combat, equipe);
       } catch (erreur) {
         if (!(erreur instanceof ErreurValidation)) throw erreur;
-        avertissements.push(`combat en cours abandonné : ${erreur.message}`);
+        avertissements.push({ cle: 'sauvegarde.motif.combatAbandonne', detail: erreur.motif });
       }
     }
 
@@ -261,7 +307,7 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
       format: FORMAT_PARTIE,
       version: VERSION_ACTUELLE,
       seed: texte(document.seed, 'seed', 40),
-      langue: parmi(document.langue ?? 'fr', 'langue', LANGUES),
+      langue: parmi(document.langue ?? LANGUE_PAR_DEFAUT, 'langue', LANGUES),
       creeLe: texte(document.creeLe ?? '', 'creeLe', 40),
       majLe: texte(document.majLe ?? '', 'majLe', 40),
       joueur: {
@@ -311,7 +357,7 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
 
     return { ok: true, valeur: partie, avertissements };
   } catch (erreur) {
-    if (erreur instanceof ErreurValidation) return { ok: false, raison: erreur.message };
+    if (erreur instanceof ErreurValidation) return { ok: false, raison: erreur.motif };
     throw erreur;
   }
 }
@@ -320,8 +366,8 @@ export function validerPartie(brut: unknown): Validation<SaveFile> {
 export function validerCreature(brut: unknown): Validation<CreatureFile> {
   try {
     const document = enveloppe(brut, FORMAT_CREATURE);
-    const avertissements: string[] = [];
-    if (!checksumValide(document)) avertissements.push('somme de contrôle incorrecte');
+    const avertissements: MotifValidation[] = [];
+    if (!checksumValide(document)) avertissements.push({ cle: 'sauvegarde.motif.checksum' });
 
     return {
       ok: true,
@@ -335,7 +381,7 @@ export function validerCreature(brut: unknown): Validation<CreatureFile> {
       avertissements,
     };
   } catch (erreur) {
-    if (erreur instanceof ErreurValidation) return { ok: false, raison: erreur.message };
+    if (erreur instanceof ErreurValidation) return { ok: false, raison: erreur.motif };
     throw erreur;
   }
 }
@@ -345,6 +391,6 @@ export function lireJson(texteBrut: string): Validation<unknown> {
   try {
     return { ok: true, valeur: JSON.parse(texteBrut) as unknown, avertissements: [] };
   } catch {
-    return { ok: false, raison: 'ce n’est pas du JSON valide' };
+    return { ok: false, raison: { cle: 'sauvegarde.motif.jsonInvalide' } };
   }
 }

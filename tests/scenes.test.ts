@@ -762,6 +762,42 @@ describe('échange de créatures', () => {
   });
 
   /**
+   * Le message de refus le plus long du jeu, dans les deux langues, mesuré dans le cadre.
+   *
+   * Ces phrases étaient écrites en français dans le code de validation : un joueur
+   * anglophone lisait « valeur inconnue « frostbolt » » au milieu d'une coquille
+   * anglaise. Une fois traduites, elles deviennent le texte le plus long affiché par le
+   * jeu — et rien ne vérifiait qu'il tenait à l'écran.
+   */
+  it('affiche un refus d’import dans la langue du joueur, sans déborder', () => {
+    for (const langue of LANGUES) {
+      const banc = creerBanc(langue);
+      peupler(banc, 1);
+      // Une scène qui dessine la boîte de dialogue : sans elle, on ne mesure rien.
+      banc.jeu.pousser(new SceneMenu());
+
+      const abime = JSON.parse(fichierCreature()) as Record<string, any>;
+      abime.creature.moves[0].id = 'frostbolt';
+      importerCreatureSeule(banc.jeu, JSON.stringify(abime));
+
+      // La boîte dévoile son texte lettre à lettre : on lui laisse des trames pour que la
+      // phrase entière passe sous le peintre. La mesure vient **avant** `repliques`, qui
+      // vide la file en validant.
+      debordements = [];
+      textesDessines = [];
+      for (let trame = 0; trame < 240; trame++) banc.trame();
+
+      expect(textesDessines.join(' '), `${langue} : le refus doit être dessiné`).toContain('frostbolt');
+      expect(debordements, `${langue} : refus d’import hors cadre`).toEqual([]);
+
+      const dites = repliques(banc).join(' ');
+      expect(dites, `${langue} : la coquille doit être traduite`).toContain(
+        banc.jeu.t('sauvegarde.invalide', { raison: '' }).trim(),
+      );
+    }
+  });
+
+  /**
    * L'export partait sur la première créature de l'équipe, sans le demander : c'était la
    * seule qu'on pouvait échanger, et rien ne l'annonçait.
    */
@@ -1061,7 +1097,7 @@ describe('reprise d’un combat interrompu', () => {
   function reprendre(texte: string): Banc {
     const resultat = chargerDepuisTexte(texte);
     expect(resultat.ok).toBe(true);
-    if (!resultat.ok) throw new Error(resultat.raison);
+    if (!resultat.ok) throw new Error(resultat.raison.cle);
 
     const banc = creerBanc();
     banc.jeu.chargerPartie(resultat.valeur.state);

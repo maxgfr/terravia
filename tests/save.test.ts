@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import type { CleTexte, Langue } from '../src/i18n/index.ts';
+import { rendreMotif, type MotifValidation } from '../src/save/validate.ts';
 import { makeRng } from '../src/core/rng.ts';
+
+/** Le message qu'un joueur de cette langue lirait pour ce refus. */
+function rendu(motif: MotifValidation, langue: Langue = 'fr'): string {
+  return rendreMotif(langue, motif);
+}
 import { creerCreature } from '../src/game/creature.ts';
 import {
   accueillirCreature,
@@ -152,20 +159,42 @@ describe('aller-retour de sauvegarde', () => {
 });
 
 describe('refus des fichiers invalides', () => {
-  const cas: Array<[string, unknown, RegExp]> = [
-    ['un texte qui n’est pas du JSON', undefined, /JSON valide/],
-    ['un autre format', { format: 'autre-jeu', version: 1 }, /terravia-save/],
-    ['une version future', { format: 'terravia-save', version: 99 }, /version/],
+  const cas: Array<[string, unknown, CleTexte]> = [
+    ['un texte qui n’est pas du JSON', undefined, 'sauvegarde.motif.jsonInvalide'],
+    ['un autre format', { format: 'autre-jeu', version: 1 }, 'sauvegarde.motif.mauvaisFormat'],
+    ['une version future', { format: 'terravia-save', version: 99 }, 'sauvegarde.motif.versionFuture'],
   ];
 
-  for (const [nom, document, motif] of cas) {
+  for (const [nom, document, cle] of cas) {
     it(`rejette ${nom} avec un message précis`, () => {
       const texte = document === undefined ? '{pas du json' : JSON.stringify(document);
       const resultat = chargerDepuisTexte(texte);
       expect(resultat.ok).toBe(false);
-      if (!resultat.ok) expect(resultat.raison).toMatch(motif);
+      if (!resultat.ok) expect(resultat.raison.cle).toBe(cle);
     });
   }
+
+  /**
+   * Le motif du refus est une clé, pas une phrase : c'est ce qui permet à un joueur
+   * anglophone de lire en anglais pourquoi son fichier est refusé. Tous ces messages
+   * étaient écrits en français dans le code et s'affichaient tels quels.
+   */
+  it('dit dans les deux langues ce qui cloche, en nommant le coupable', () => {
+    const copie = JSON.parse(JSON.stringify(exporterPartie(partieAvancee(), HORODATAGE))) as Record<string, any>;
+    copie.equipe[0].moves[0].id = 'frostbolt';
+    const resultat = chargerDepuisTexte(JSON.stringify(copie));
+    expect(resultat.ok).toBe(false);
+    if (resultat.ok) return;
+
+    const francais = rendu(resultat.raison, 'fr');
+    const anglais = rendu(resultat.raison, 'en');
+
+    expect(francais).toContain('frostbolt');
+    expect(anglais).toContain('frostbolt');
+    expect(anglais).not.toBe(francais);
+    // Le repère technique dans le fichier ne se traduit pas : c'est un chemin, pas de la prose.
+    expect(anglais).toContain('equipe[0].moves[0].id');
+  });
 
   it('rejette une sauvegarde sans aucune créature', () => {
     // Un document par ailleurs bien formé : sans équipe, la partie serait injouable
@@ -174,7 +203,7 @@ describe('refus des fichiers invalides', () => {
     copie.equipe = [];
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toMatch(/équipe est vide/);
+    if (!resultat.ok) expect(resultat.raison.cle).toBe('sauvegarde.motif.equipeVide');
   });
 
   it('nomme l’attaque inconnue plutôt que de dire « fichier invalide »', () => {
@@ -183,7 +212,7 @@ describe('refus des fichiers invalides', () => {
     copie.equipe[0].moves[0].id = 'frostbolt';
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toContain('frostbolt');
+    if (!resultat.ok) expect(rendu(resultat.raison)).toContain('frostbolt');
   });
 
   it('rejette une espèce inconnue', () => {
@@ -191,7 +220,7 @@ describe('refus des fichiers invalides', () => {
     copie.equipe[0].speciesId = 'pikachu';
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toContain('pikachu');
+    if (!resultat.ok) expect(rendu(resultat.raison)).toContain('pikachu');
   });
 
   it('rejette des PP au-delà du maximum de l’attaque', () => {
@@ -199,7 +228,7 @@ describe('refus des fichiers invalides', () => {
     copie.equipe[0].moves[0].pp = 9999;
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toMatch(/pp/i);
+    if (!resultat.ok) expect(rendu(resultat.raison)).toMatch(/pp/i);
   });
 
   it('rejette des gènes hors bornes', () => {
@@ -207,7 +236,7 @@ describe('refus des fichiers invalides', () => {
     copie.equipe[0].genes.attaque = 999;
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toMatch(/genes\.attaque/);
+    if (!resultat.ok) expect(rendu(resultat.raison)).toMatch(/genes\.attaque/);
   });
 
   it('rejette deux créatures partageant un identifiant', () => {
@@ -215,7 +244,7 @@ describe('refus des fichiers invalides', () => {
     copie.equipe[1].uid = copie.equipe[0].uid;
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toMatch(/identifiant/);
+    if (!resultat.ok) expect(resultat.raison.cle).toBe('sauvegarde.motif.uidDouble');
   });
 
   it('rejette une région qui n’existe pas', () => {
@@ -223,7 +252,7 @@ describe('refus des fichiers invalides', () => {
     copie.joueur.regionIndex = 42;
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toMatch(/regionIndex/);
+    if (!resultat.ok) expect(rendu(resultat.raison)).toMatch(/regionIndex/);
   });
 
   it('avertit sans refuser quand la somme de contrôle a été modifiée', () => {
@@ -233,7 +262,7 @@ describe('refus des fichiers invalides', () => {
     const resultat = chargerDepuisTexte(JSON.stringify(copie));
     expect(resultat.ok).toBe(true);
     if (!resultat.ok) return;
-    expect(resultat.valeur.avertissements).toContain('somme de contrôle incorrecte');
+    expect(resultat.valeur.avertissements.map((a) => a.cle)).toContain('sauvegarde.motif.checksum');
     expect(resultat.valeur.state.joueur.pieces).toBe(999999);
   });
 
@@ -316,7 +345,7 @@ describe('combat en cours', () => {
     if (!resultat.ok) return;
     expect(resultat.valeur.state.combat).toBeNull();
     expect(resultat.valeur.state.equipe).toHaveLength(3);
-    expect(resultat.avertissements.join(' ')).toContain('combat en cours abandonné');
+    expect(resultat.avertissements.map((a) => a.cle)).toContain('sauvegarde.motif.combatAbandonne');
   });
 
   it('abandonne un combat dont l’adversaire est déjà hors de combat', () => {
@@ -337,7 +366,7 @@ describe('combat en cours', () => {
     expect(resultat.ok).toBe(true);
     if (!resultat.ok) return;
     expect(resultat.valeur.state.combat).toBeNull();
-    expect(resultat.avertissements.join(' ')).toContain('etagesJoueur.attaque');
+    expect(resultat.avertissements.map((a) => rendu(a)).join(' ')).toContain('etagesJoueur.attaque');
   });
 });
 
@@ -382,7 +411,7 @@ describe('migrations', () => {
     const resultat = chargerDepuisTexte(JSON.stringify(v1));
     expect(resultat.ok).toBe(true);
     if (!resultat.ok) return;
-    expect(resultat.avertissements).toContain('somme de contrôle incorrecte');
+    expect(resultat.avertissements.map((a) => a.cle)).toContain('sauvegarde.motif.checksum');
   });
 });
 
@@ -405,7 +434,7 @@ describe('échange d’une créature', () => {
     const document = exporterPartie(partieAvancee(), HORODATAGE);
     const resultat = chargerCreatureDepuisTexte(JSON.stringify(document));
     expect(resultat.ok).toBe(false);
-    if (!resultat.ok) expect(resultat.raison).toContain('terravia-creature');
+    if (!resultat.ok) expect(rendu(resultat.raison)).toContain('terravia-creature');
   });
 
   it('évite la collision d’identifiants après import', () => {

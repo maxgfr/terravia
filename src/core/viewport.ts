@@ -89,7 +89,9 @@ export function createViewport(host: HTMLElement): Viewport {
   const canvas = document.createElement('canvas');
   canvas.width = VIRTUAL_WIDTH;
   canvas.height = VIRTUAL_HEIGHT;
-  canvas.setAttribute('aria-label', 'Fenêtre de jeu Terravia');
+  // Étiquette provisoire : `appliquerLangueAuDocument` la remplace dès que la langue
+  // du joueur est connue. Elle était écrite en dur en français quelle que soit la langue.
+  canvas.setAttribute('aria-label', 'Terravia');
   canvas.setAttribute('role', 'img');
 
   const ctx = canvas.getContext('2d', { alpha: false });

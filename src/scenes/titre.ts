@@ -12,10 +12,10 @@ import { creerCreature } from '../game/creature.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import { accueillirCreature, creerPartie, poserDrapeau, prochainIdentifiant } from '../game/state.ts';
 import { chargerDepuisTexte } from '../save/serialize.ts';
-import { choisirFichier, enregistrerLanguePreferee, lireSauvegardeLocale } from '../save/storage.ts';
+import { choisirFichier, lireSauvegardeLocale } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
 import { viser, type Colonne } from '../ui/liste.ts';
-import { LANGUES, type CleTexte } from '../i18n/index.ts';
+import { type CleTexte } from '../i18n/index.ts';
 import { SceneAide } from './aide.ts';
 import { SceneEncyclopedie } from './encyclopedie.ts';
 import { entrerDansLaPartie, traiterImport } from './partie.ts';
@@ -128,9 +128,7 @@ export class SceneTitre implements Scene {
         jeu.pousser(new SceneAide());
         break;
       case 'parametres.langue': {
-        const index = LANGUES.indexOf(jeu.langue);
-        jeu.state.langue = LANGUES[(index + 1) % LANGUES.length]!;
-        enregistrerLanguePreferee(jeu.state.langue);
+        jeu.basculerLangue();
         break;
       }
       case 'encyclopedie.titre':
@@ -144,7 +142,7 @@ export class SceneTitre implements Scene {
     if (!contenu) return;
     const resultat = chargerDepuisTexte(contenu);
     if (!resultat.ok) {
-      jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: resultat.raison }));
+      jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: jeu.motif(resultat.raison) }));
       this.aUneSauvegarde = false;
       return;
     }

@@ -27,3 +27,21 @@ export function langueParDefaut(enregistree: string | null): Langue {
   }
   return LANGUE_PAR_DEFAUT;
 }
+
+/**
+ * Répercute la langue choisie sur le document lui-même.
+ *
+ * La page était figée à `lang="fr"` alors qu'elle s'ouvre en anglais : un lecteur d'écran
+ * prononçait donc l'anglais avec des phonèmes français, et les moteurs de recherche
+ * indexaient la page comme française. L'étiquette du canvas, elle, était écrite en dur
+ * en français quelle que soit la langue.
+ *
+ * Sans DOM — sous les tests — la fonction ne fait rien.
+ */
+export function appliquerLangueAuDocument(langue: Langue, etiquetteCanvas?: string): void {
+  if (typeof document === 'undefined') return;
+  // Le document des tests n'est qu'une doublure : on ne suppose aucune de ses parties.
+  if (document.documentElement) document.documentElement.lang = langue;
+  const canvas = document.querySelector?.('canvas');
+  if (canvas && etiquetteCanvas) canvas.setAttribute('aria-label', etiquetteCanvas);
+}

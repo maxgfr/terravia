@@ -78,6 +78,11 @@
         letter-spacing: 0.1em;
         pointer-events: none;
         transition: opacity 0.3s;
+        /* Le message d'échec tient sur deux lignes : la cause, puis le détail. Sans cette
+           règle, le saut de ligne s'écrasait en simple espace. */
+        white-space: pre-line;
+        text-align: center;
+        padding: 0 1rem;
       }
       #boot.gone {
         opacity: 0;

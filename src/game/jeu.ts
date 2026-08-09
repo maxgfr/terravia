@@ -14,14 +14,16 @@ import { ITEMS, type ItemId } from '../data/items.ts';
 import { TALENTS, type TalentId } from '../data/talents.ts';
 import { TYPE_NAMES, type ElementType } from '../data/types.ts';
 import { STAT_NAMES, type StatKey } from '../data/stats.ts';
-import { traduire, type CleTexte, type Langue, type Params } from '../i18n/index.ts';
+import { LANGUES, traduire, type CleTexte, type Langue, type Params } from '../i18n/index.ts';
+import { appliquerLangueAuDocument } from '../i18n/preference.ts';
 import { BoiteDialogue } from '../ui/dialogue.ts';
 import type { Peintre } from '../ui/draw.ts';
 import { creerMonde, type World } from '../world/worldgen.ts';
 import { nomAffiche, type CreatureInstance } from './creature.ts';
 import { exporterPartie } from '../save/serialize.ts';
-import { empreinte, enregistrerLocalement } from '../save/storage.ts';
+import { empreinte, enregistrerLanguePreferee, enregistrerLocalement } from '../save/storage.ts';
 import type { SaveFile } from '../save/format.ts';
+import { rendreMotif, type MotifValidation } from '../save/validate.ts';
 import type { GameState } from './state.ts';
 
 export interface Scene {
@@ -150,6 +152,29 @@ export class Jeu {
 
   t(cle: CleTexte, params?: Params): string {
     return traduire(this.langue, cle, params);
+  }
+
+  /**
+   * Rend lisible un refus de la validation.
+   *
+   * La validation renvoie une clé et ses paramètres, jamais une phrase : c'est ce qui
+   * permet à un joueur anglophone de lire en anglais pourquoi son fichier est refusé.
+   */
+  motif(motif: MotifValidation): string {
+    return rendreMotif(this.langue, motif);
+  }
+
+  /**
+   * Passe à la langue suivante, la retient, et la répercute sur le document.
+   *
+   * L'écran-titre et le menu de pause faisaient chacun leur bascule dans leur coin ; le
+   * `lang` de la page et l'étiquette du canvas, eux, n'étaient mis à jour nulle part.
+   */
+  basculerLangue(): void {
+    const index = LANGUES.indexOf(this.langue);
+    this.state.langue = LANGUES[(index + 1) % LANGUES.length]!;
+    enregistrerLanguePreferee(this.state.langue);
+    appliquerLangueAuDocument(this.state.langue, this.t('a11y.canvas'));
   }
 
   /** Traduit une clé de dialogue venue des données du monde, sans planter si absente. */

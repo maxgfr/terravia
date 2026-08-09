@@ -30,10 +30,9 @@ import {
   utiliserObjetSur,
 } from '../game/state.ts';
 import { exporterCreature, exporterPartie, nomFichier } from '../save/serialize.ts';
-import { choisirFichier, enregistrerLanguePreferee, telecharger } from '../save/storage.ts';
+import { choisirFichier, telecharger } from '../save/storage.ts';
 import { COULEURS } from '../ui/draw.ts';
 import { viser, type Colonne } from '../ui/liste.ts';
-import { LANGUES } from '../i18n/index.ts';
 import { makeSeedText } from '../core/rng.ts';
 import { SceneCarte } from './carte.ts';
 import { SceneAide } from './aide.ts';
@@ -238,9 +237,7 @@ export class SceneMenu implements Scene {
         break;
       case 'parametres.langue': {
         // Bascule circulaire, sur place : avec deux langues c'est un aller-retour.
-        const index = LANGUES.indexOf(jeu.langue);
-        jeu.state.langue = LANGUES[(index + 1) % LANGUES.length]!;
-        enregistrerLanguePreferee(jeu.state.langue);
+        jeu.basculerLangue();
         break;
       }
       case 'encyclopedie.titre':

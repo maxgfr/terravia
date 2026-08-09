@@ -95,7 +95,7 @@ export function importerCreatureSeule(jeu: Jeu, contenu: string): void {
   }
   const creature = chargerCreatureDepuisTexte(contenu);
   if (!creature.ok) {
-    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: creature.raison }));
+    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: jeu.motif(creature.raison) }));
     return;
   }
   accueillirDepuisFichier(jeu, creature.valeur);
@@ -114,7 +114,7 @@ export function importerPartieSeule(jeu: Jeu, contenu: string): void {
   }
   const partie = chargerDepuisTexte(contenu);
   if (!partie.ok) {
-    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: partie.raison }));
+    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: jeu.motif(partie.raison) }));
     return;
   }
   confirmerPuisCharger(jeu, partie.valeur);
@@ -149,7 +149,7 @@ function confirmerPuisCharger(jeu: Jeu, chargee: PartieChargee): void {
     }),
   );
   for (const avertissement of chargee.avertissements) {
-    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: avertissement }));
+    jeu.dialogue.dire(jeu.t('sauvegarde.invalide', { raison: jeu.motif(avertissement) }));
   }
 
   void jeu.dialogue

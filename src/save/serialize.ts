@@ -24,7 +24,13 @@ import {
   type CreatureFile,
   type SaveFile,
 } from './format.ts';
-import { lireJson, validerCreature, validerPartie, type Validation } from './validate.ts';
+import {
+  lireJson,
+  validerCreature,
+  validerPartie,
+  type MotifValidation,
+  type Validation,
+} from './validate.ts';
 import { planifierMonde } from '../world/worldgen.ts';
 
 /**
@@ -33,7 +39,10 @@ import { planifierMonde } from '../world/worldgen.ts';
  */
 const MIGRATIONS: Record<number, (document: Record<string, unknown>) => Record<string, unknown>> = {
   // v1 → v2 : une partie enregistrée avant la reprise de combat n'en contenait aucun.
-  1: (document) => ({ ...document, combat: null }),
+  // Le champ n'a de sens que pour une partie : greffer un `combat: null` sur l'export
+  // d'une créature seule y ajoutait un champ absurde.
+  1: (document) =>
+    document.format === FORMAT_PARTIE ? { ...document, combat: null } : { ...document },
 };
 
 /** Applique les migrations successives jusqu'à la version courante. */
@@ -225,7 +234,7 @@ export function importerCreature(document: CreatureFile, nouvelUid: string): Cre
 
 export interface PartieChargee {
   readonly state: GameState;
-  readonly avertissements: readonly string[];
+  readonly avertissements: readonly MotifValidation[];
   readonly resume: SaveFile;
 }
 
@@ -239,7 +248,7 @@ export function chargerDepuisTexte(texteBrut: string): Validation<PartieChargee>
 
   const brut = analyse.valeur;
   if (typeof brut !== 'object' || brut === null) {
-    return { ok: false, raison: 'le document devrait être un objet' };
+    return { ok: false, raison: { cle: 'sauvegarde.motif.objet', params: { chemin: 'document' } } };
   }
 
   // La somme de contrôle se lit sur le document d'origine, avant migration : une
@@ -287,9 +296,16 @@ export function chargerCreatureDepuisTexte(texteBrut: string): Validation<Creatu
   if (!analyse.ok) return analyse;
   const brut = analyse.valeur;
   if (typeof brut !== 'object' || brut === null) {
-    return { ok: false, raison: 'le document devrait être un objet' };
+    return { ok: false, raison: { cle: 'sauvegarde.motif.objet', params: { chemin: 'document' } } };
   }
-  return validerCreature(migrer(brut as Record<string, unknown>));
+  // Même précaution que pour une partie : la somme de contrôle se lit sur le document
+  // d'origine, avant migration. Sans elle, un fichier créature v1 parfaitement signé se
+  // voyait reprocher une « somme de contrôle incorrecte » qu'il n'avait pas méritée — la
+  // migration l'ayant modifié entre-temps.
+  const document = brut as Record<string, unknown>;
+  const sommeDorigine = checksumValide(document);
+  const migre = migrer(document);
+  return validerCreature(sommeDorigine && migre !== document ? signer(migre) : migre);
 }
 
 /** Nom de fichier lisible et daté, sans caractère problématique. */
