@@ -3,6 +3,10 @@ name: Déploiement GitHub Pages
 on:
   push:
     branches: [main]
+  # Les vérifications tournaient seulement après le merge, sur l'artefact déjà en route
+  # vers la production : une pull request rouge cassait le site avant qu'on la lise.
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 # Un seul déploiement à la fois. Une nouvelle poussée annule celle en attente,
@@ -11,21 +15,22 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Le droit de publier n'est accordé qu'au job qui publie. Le job de build, lui, ne fait
+# que lire le dépôt.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
     name: Tests et build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -36,18 +41,39 @@ jobs:
       - name: Tests
         run: npm test
 
-      # L'art est commité. On le régénère et on exige un diff vide : une planche
+      # L'art est commité. On le régénère et on exige que rien n'ait bougé : une planche
       # oubliée après un changement de code se voit ici, pas en jeu.
+      #
+      # `git status --porcelain` plutôt que `git diff` : ce dernier ne voit que les
+      # fichiers déjà suivis. Ajouter une planche au générateur passait donc au vert,
+      # alors que le fichier n'était commité nulle part.
       - name: L’art commité est-il à jour ?
         run: |
           npm run art
-          git diff --exit-code --stat public/art || {
+          if [ -n "$(git status --porcelain public/art)" ]; then
+            git status --porcelain public/art
             echo "::error::public/art/ n’est plus synchronisé. Lancez « npm run art » et committez le résultat."
             exit 1
-          }
+          fi
 
       - name: Build
-        run: npx vite build
+        run: npm run build
+
+      # Le build peut réussir en ne produisant rien d'utile : si le dossier public ou le
+      # chemin de base changeaient, la CI resterait verte et la page afficherait
+      # « Planche introuvable ». On vérifie donc l'artefact lui-même.
+      - name: L’artefact contient-il de quoi jouer ?
+        run: |
+          test -f dist/index.html || { echo "::error::dist/index.html manquant"; exit 1; }
+          planches=$(ls dist/art 2>/dev/null | wc -l)
+          if [ "$planches" -eq 0 ]; then
+            echo "::error::dist/art/ est vide : le jeu démarrerait sans ses images."
+            exit 1
+          fi
+          grep -q '/terravia/' dist/index.html || {
+            echo "::error::dist/index.html ne référence pas le chemin de base /terravia/."
+            exit 1
+          }
 
       - uses: actions/configure-pages@v5
 
@@ -57,8 +83,14 @@ jobs:
 
   deploy:
     name: Déploiement
+    # Une pull request se vérifie, elle ne se publie pas.
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

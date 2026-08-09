@@ -21,9 +21,17 @@ export interface LoopCallbacks {
   update(step: number): void;
   /** Dessine l'état courant. `alpha` est la fraction de pas restant à interpoler. */
   render(alpha: number): void;
+  /**
+   * Appelé si `update` ou `render` lève. La boucle s'arrête d'abord.
+   *
+   * Sans cela, une exception dans une scène ne stoppait rien : la trame suivante était
+   * déjà planifiée, si bien que la même erreur se rejouait soixante fois par seconde sur
+   * une image figée, la console saturait, et le joueur n'avait ni message ni recours.
+   */
+  onError?(erreur: unknown): void;
 }
 
-export function createLoop({ update, render }: LoopCallbacks): GameLoop {
+export function createLoop({ update, render, onError }: LoopCallbacks): GameLoop {
   let frameId = 0;
   let previous = 0;
   let accumulator = 0;
@@ -38,12 +46,18 @@ export function createLoop({ update, render }: LoopCallbacks): GameLoop {
     if (elapsed > MAX_CATCHUP_MS) elapsed = MAX_CATCHUP_MS;
     accumulator += elapsed;
 
-    while (accumulator >= STEP_MS) {
-      update(STEP_MS / 1000);
-      accumulator -= STEP_MS;
-    }
+    try {
+      while (accumulator >= STEP_MS) {
+        update(STEP_MS / 1000);
+        accumulator -= STEP_MS;
+      }
 
-    render(accumulator / STEP_MS);
+      render(accumulator / STEP_MS);
+    } catch (erreur) {
+      running = false;
+      cancelAnimationFrame(frameId);
+      onError?.(erreur);
+    }
   };
 
   return {

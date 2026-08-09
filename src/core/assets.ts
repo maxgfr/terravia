@@ -72,23 +72,42 @@ export interface Assets {
 }
 
 function racine(): string {
-  // `BASE_URL` vaut « /terravia/ » en production et « / » en développement : passer par
-  // lui est ce qui évite des chemins absolus qui renverraient 404 une fois déployés.
+  // `base` est posé sans condition dans `vite.config.ts` : `BASE_URL` vaut donc
+  // « /terravia/ » aussi bien en production qu'avec `npm run dev`. Passer par lui est ce
+  // qui évite des chemins absolus qui renverraient 404 une fois déployés.
   return `${import.meta.env.BASE_URL}art/`;
 }
 
-function chargerImage(nom: string): Promise<HTMLImageElement> {
-  return new Promise((resoudre, rejeter) => {
-    const image = new Image();
-    image.decoding = 'async';
-    image.addEventListener('load', () => resoudre(image));
-    image.addEventListener('error', () => rejeter(new Error(`Planche introuvable : ${nom}`)));
-    image.src = `${racine()}${nom}`;
+/**
+ * Au-delà, on renonce plutôt que d'attendre indéfiniment.
+ *
+ * Sans délai, une connexion mobile qui décroche laissait « TERRAVIA » à l'écran pour
+ * toujours : ni message, ni bouton, ni moyen de comprendre. Mieux vaut une panne dite.
+ */
+const DELAI_CHARGEMENT_MS = 20_000;
+
+function avecDelai<T>(promesse: Promise<T>, nom: string): Promise<T> {
+  return new Promise<T>((resoudre, rejeter) => {
+    const minuterie = setTimeout(() => rejeter(new Error(`Chargement trop long : ${nom}`)), DELAI_CHARGEMENT_MS);
+    promesse.then(resoudre, rejeter).finally(() => clearTimeout(minuterie));
   });
 }
 
+function chargerImage(nom: string): Promise<HTMLImageElement> {
+  return avecDelai(
+    new Promise<HTMLImageElement>((resoudre, rejeter) => {
+      const image = new Image();
+      image.decoding = 'async';
+      image.addEventListener('load', () => resoudre(image));
+      image.addEventListener('error', () => rejeter(new Error(`Planche introuvable : ${nom}`)));
+      image.src = `${racine()}${nom}`;
+    }),
+    nom,
+  );
+}
+
 async function chargerJson<T>(nom: string): Promise<T> {
-  const reponse = await fetch(`${racine()}${nom}`);
+  const reponse = await avecDelai(fetch(`${racine()}${nom}`), nom);
   if (!reponse.ok) throw new Error(`Métadonnées introuvables : ${nom}`);
   return (await reponse.json()) as T;
 }

@@ -61,6 +61,8 @@ export class Jeu {
   /** Cadencement et déduplication de la sauvegarde automatique. */
   private depuisDerniereEcriture = 0;
   private derniereEmpreinte = '';
+  /** Le refus d'écrire a déjà été dit : on ne le répète pas à chaque tentative. */
+  private echecEcritureSignale = false;
 
   readonly peintre: Peintre;
   readonly entrees: Entrees;
@@ -253,8 +255,23 @@ export class Jeu {
     return this.ecrire(document);
   }
 
+  /**
+   * Écrit, et prévient une fois si le navigateur refuse.
+   *
+   * Le refus était muet partout sauf sur l'entrée « Enregistrer maintenant » du menu :
+   * dix-huit autres appels jetaient le booléen. En navigation privée, on jouait une heure
+   * sans le moindre signe avant de tout perdre. L'avertissement ne sort qu'une fois — le
+   * répéter toutes les dix secondes rendrait le jeu inutilisable.
+   */
   private ecrire(document: SaveFile): boolean {
-    if (!enregistrerLocalement(document)) return false;
+    if (!enregistrerLocalement(document)) {
+      if (!this.echecEcritureSignale) {
+        this.echecEcritureSignale = true;
+        this.dialogue.dire(this.t('sauvegarde.impossible'));
+      }
+      return false;
+    }
+    this.echecEcritureSignale = false;
     this.derniereEmpreinte = empreinte(document);
     this.depuisDerniereEcriture = 0;
     return true;

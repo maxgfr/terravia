@@ -20,15 +20,50 @@ import { Peintre } from './ui/draw.ts';
 import { appliquerLangueAuDocument, langueParDefaut } from './i18n/preference.ts';
 import { traduire } from './i18n/index.ts';
 
+/**
+ * Le voile de démarrage, retenu dès le chargement.
+ *
+ * Il est retiré du document 400 ms après un démarrage réussi : le rechercher par son
+ * identifiant au moment d'afficher une erreur ne renverrait donc plus rien. En garder la
+ * référence permet de le remettre en place, et c'est tout ce qui sépare une panne
+ * expliquée d'une page muette.
+ */
+const voileDemarrage = document.getElementById('boot');
+
+/** Vrai dès qu'une panne a été affichée : le jeu ne redémarre pas par-dessus. */
+let enPanne = false;
+
 function afficherErreur(message: string): void {
-  const boot = document.getElementById('boot');
-  if (boot) {
-    boot.textContent = message;
-    boot.classList.remove('gone');
-    boot.style.color = '#e05a4a';
-    boot.style.padding = '2rem';
-    boot.style.textAlign = 'center';
-  }
+  enPanne = true;
+  if (!voileDemarrage) return;
+  voileDemarrage.textContent = message;
+  voileDemarrage.classList.remove('gone');
+  voileDemarrage.style.color = '#e05a4a';
+  voileDemarrage.style.padding = '2rem';
+  if (!voileDemarrage.isConnected) document.body.appendChild(voileDemarrage);
+}
+
+/** La phrase d'échec, dans la langue du joueur, même si le jeu n'a jamais démarré. */
+function messageDechec(erreur: unknown): string {
+  const detail = erreur instanceof Error ? erreur.message : String(erreur);
+  const langue = langueParDefaut(lireLanguePreferee());
+  return `${traduire(langue, 'boot.echec')}\n${detail}`;
+}
+
+/**
+ * Rattrape ce qui échappe à la boucle : un gestionnaire d'événement, une promesse
+ * abandonnée, un rappel de chargement.
+ *
+ * Il n'y en avait aucun. Après le démarrage, la moindre exception laissait une page
+ * muette — le jeu figé sur sa dernière image, sans un mot pour dire ce qui s'était passé.
+ */
+function installerFiletDeSecurite(): void {
+  const signaler = (erreur: unknown): void => {
+    afficherErreur(messageDechec(erreur));
+    console.error(erreur);
+  };
+  window.addEventListener('error', (evenement) => signaler(evenement.error ?? evenement.message));
+  window.addEventListener('unhandledrejection', (evenement) => signaler(evenement.reason));
 }
 
 async function demarrer(): Promise<void> {
@@ -62,10 +97,19 @@ async function demarrer(): Promise<void> {
 
   const boucle = createLoop({
     update: (step) => {
-      jeu.mettreAJour(step);
-      entrees.finDeTrame();
+      // `finDeTrame` dans un `finally` : si la mise à jour lève, les entrées seraient
+      // sinon figées à « pressée », et la trame suivante repartirait avec.
+      try {
+        jeu.mettreAJour(step);
+      } finally {
+        entrees.finDeTrame();
+      }
     },
     render: () => jeu.dessiner(),
+    onError: (erreur) => {
+      afficherErreur(messageDechec(erreur));
+      console.error(erreur);
+    },
   });
   boucle.start();
 
@@ -82,7 +126,9 @@ async function demarrer(): Promise<void> {
     if (document.hidden) {
       jeu.sauvegarderLocalement();
       boucle.stop();
-    } else {
+    } else if (!enPanne) {
+      // Revenir sur l'onglet ne relance pas un jeu qui s'est arrêté sur une erreur :
+      // ce serait effacer le message et repartir dans la même exception.
       boucle.start();
     }
   });
@@ -91,11 +137,9 @@ async function demarrer(): Promise<void> {
   window.addEventListener('pagehide', () => jeu.sauvegarderLocalement());
 }
 
+installerFiletDeSecurite();
+
 demarrer().catch((erreur: unknown) => {
-  const message = erreur instanceof Error ? erreur.message : String(erreur);
-  // Le catalogue n'est peut-être pas chargé : on lit la préférence directement, et la
-  // phrase reste dans la langue du joueur plutôt qu'en français quoi qu'il arrive.
-  const langue = langueParDefaut(lireLanguePreferee());
-  afficherErreur(`${traduire(langue, 'boot.echec')}\n${message}`);
+  afficherErreur(messageDechec(erreur));
   console.error(erreur);
 });
