@@ -12,12 +12,13 @@ import { MOVES } from '../data/moves.ts';
 import { SPECIES, SPECIES_IDS, type SpeciesId } from '../data/species.ts';
 import { BIOME_NAMES } from '../data/biomes.ts';
 import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../data/types.ts';
-import { STAT_KEYS, experienceForLevel } from '../data/stats.ts';
+import { BATTLE_STATS, STAT_KEYS, experienceForLevel } from '../data/stats.ts';
 import { TALENTS } from '../data/talents.ts';
-import { evoluer, pvMax, type CreatureInstance } from '../game/creature.ts';
+import { evoluer, pvMax, statistique, type CreatureInstance } from '../game/creature.ts';
 import type { Jeu, Scene } from '../game/jeu.ts';
 import {
   TAILLE_EQUIPE,
+  deplacerDansEquipe,
   deposerEnReserve,
   quantite,
   retirerObjet,
@@ -137,6 +138,8 @@ export class SceneMenu implements Scene {
   /** Colonne active de l'écran de réserve, et curseur de la colonne de droite. */
   private cote: 'equipe' | 'reserve' = 'equipe';
   private selectionReserve = 0;
+  /** Rang de la créature soulevée dans l'onglet Équipe, ou `null` si rien n'est porté. */
+  private porte: number | null = null;
 
   mettreAJour(jeu: Jeu, step: number): void {
     if (jeu.dialogue.actif) {
@@ -181,6 +184,9 @@ export class SceneMenu implements Scene {
     this.defilement = 0;
     this.cote = 'equipe';
     this.selectionReserve = 0;
+    // Quitter l'onglet repose toujours ce qu'on y portait : une créature restée en main
+    // reprendrait sa course au retour, sur un curseur qui a bougé entre-temps.
+    this.porte = null;
   }
 
   private naviguer(jeu: Jeu, nombre: number): void {
@@ -258,25 +264,111 @@ export class SceneMenu implements Scene {
     }
   }
 
+  /**
+   * L'équipe : on y lit une fiche, et on y range l'ordre de bataille.
+   *
+   * L'ordre décide qui part au combat en premier et dans quel ordre les remplaçants se
+   * présentent quand une créature tombe. Il ne se changeait que par des allers-retours
+   * en réserve, et encore, par accident.
+   *
+   * Deux voies vers le même geste, parce que le jeu se joue au clavier, au doigt et à la
+   * souris. Au clavier on soulève une créature et elle suit le curseur — c'est ce qui
+   * rend un déplacement de cinq rangs lisible pendant qu'il se fait. À la souris, deux
+   * flèches sur la ligne survolée la montent ou la descendent d'un cran, sans mode à
+   * retenir. Les deux appellent `deplacerDansEquipe`.
+   */
   private equipe(jeu: Jeu): void {
-    this.naviguer(jeu, jeu.state.equipe.length);
+    const equipe = jeu.state.equipe;
+
+    // Une créature portée suit le curseur au lieu de le laisser filer sans elle.
+    if (this.porte !== null) {
+      const avant = this.selection;
+      this.naviguer(jeu, equipe.length);
+      // Le tour de liste ne porte pas : passer du dernier rang au premier ferait
+      // traverser toute l'équipe d'un cran, ce que personne ne demande en poussant vers
+      // le bas. On repose plutôt la créature là où elle est.
+      const pas = this.selection - avant;
+      if (pas === 1 || pas === -1) {
+        deplacerDansEquipe(jeu.state, avant, this.selection);
+        this.porte = this.selection;
+      } else if (pas !== 0) {
+        this.selection = avant;
+      }
+      if (jeu.entrees.pressee('valider') || jeu.entrees.pressee('annuler') || jeu.entrees.pressee('est')) {
+        this.porte = null;
+      }
+      return;
+    }
+
+    this.naviguer(jeu, equipe.length);
     if (jeu.entrees.pressee('annuler')) {
       this.aller('racine');
       return;
     }
+    if (jeu.entrees.pressee('est') && equipe.length > 1) {
+      this.porte = this.selection;
+      return;
+    }
+
+    // Les deux flèches de rangement, sur la ligne survolée : c'est la seule voie qui
+    // reste à une souris, où « soulever » n'a pas de geste évident.
+    const range = this.flechesOrdre(jeu, equipe.length);
+    if (range) return;
+
     // Les vignettes de l'équipe font vingt-six pixels de haut : c'est là qu'on clique
     // une créature pour ouvrir sa fiche.
-    const colonne: Colonne = {
-      x: 14,
-      largeur: VIRTUAL_WIDTH - 30,
-      y: 28,
-      pas: 26,
-      lignes: jeu.state.equipe.length,
-    };
-    if (this.validee(jeu, colonne)) {
-      this.fiche = jeu.state.equipe[this.selection] ?? null;
+    if (this.validee(jeu, this.colonneEquipe(equipe.length))) {
+      this.fiche = equipe[this.selection] ?? null;
       if (this.fiche) this.onglet = 'fiche';
     }
+  }
+
+  /** Géométrie des vignettes de l'équipe, partagée entre le dessin et le clic. */
+  private colonneEquipe(nombre: number): Colonne {
+    return { x: 14, largeur: VIRTUAL_WIDTH - 30, y: 28, pas: 26, lignes: nombre };
+  }
+
+  /**
+   * Position des deux flèches de rangement d'une ligne d'équipe.
+   *
+   * Une seule source pour le dessin et pour le clic : deux jeux de coordonnées qui se
+   * ressemblent finissent toujours par diverger, et un bouton qui ne réagit pas là où il
+   * est peint ne se diagnostique pas à l'œil.
+   */
+  private boutonOrdre(index: number, sens: 'haut' | 'bas'): { x: number; y: number; largeur: number; hauteur: number } {
+    return {
+      x: VIRTUAL_WIDTH - 34,
+      y: 30 + index * 26 + (sens === 'haut' ? 0 : 11),
+      largeur: 12,
+      hauteur: 11,
+    };
+  }
+
+  /**
+   * Une flèche de rangement n'existe que là où elle mène quelque part.
+   *
+   * Le premier rang n'a rien au-dessus, le dernier rien en dessous, et une équipe d'une
+   * seule créature n'a rien à ranger. Le dessin et le clic lisent cette règle au même
+   * endroit : une flèche peinte sans zone active, ou l'inverse, ne se voit pas à l'œil.
+   */
+  private flecheVisible(index: number, sens: 'haut' | 'bas', nombre: number): boolean {
+    if (nombre <= 1) return false;
+    return sens === 'haut' ? index > 0 : index < nombre - 1;
+  }
+
+  /** Traite un clic sur une flèche de rangement. Vrai si le clic lui revenait. */
+  private flechesOrdre(jeu: Jeu, nombre: number): boolean {
+    for (let index = 0; index < nombre; index++) {
+      for (const sens of ['haut', 'bas'] as const) {
+        if (!this.flecheVisible(index, sens, nombre)) continue;
+        const zone = this.boutonOrdre(index, sens);
+        if (!jeu.clique(zone.x, zone.y, zone.largeur, zone.hauteur)) continue;
+        const vers = sens === 'haut' ? index - 1 : index + 1;
+        if (deplacerDansEquipe(jeu.state, index, vers)) this.selection = vers;
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -645,15 +737,39 @@ export class SceneMenu implements Scene {
 
   private dessinerEquipe(jeu: Jeu): void {
     this.cadre(jeu, jeu.t('menu.equipe'));
+    const peintre = jeu.peintre;
+
     jeu.state.equipe.forEach((membre, index) => {
       const y = 32 + index * 26;
       const choisi = index === this.selection;
-      if (choisi) jeu.peintre.texte('▶', 14, y + 6, { couleur: COULEURS.selection });
-      jeu.peintre.creature(membre.speciesId, 'face', 22, y - 4, { echelle: 0.5 });
-      jeu.peintre.texte(jeu.nomCreature(membre), 58, y, { couleur: choisi ? COULEURS.texteAccent : COULEURS.texte });
-      jeu.peintre.texteDroite(jeu.t('fiche.niveau', { niveau: membre.niveau }), VIRTUAL_WIDTH - 20, y);
-      jeu.peintre.barrePv(58, y + 12, 100, membre.pv / pvMax(membre));
-      jeu.peintre.texte(`${membre.pv}/${pvMax(membre)}`, 164, y + 10, { couleur: COULEURS.texteAttenue });
+      // Une créature en main se signale par un chevron qui pointe vers le bas : elle ne
+      // désigne plus une ligne, elle cherche où se poser.
+      const porte = this.porte === index;
+      if (choisi) {
+        peintre.texte(porte ? '▼' : '▶', 14, y + 6, { couleur: COULEURS.selection });
+      }
+      peintre.creature(membre.speciesId, 'face', 22, y - 4, { echelle: 0.5 });
+      peintre.texte(jeu.nomCreature(membre), 58, y, {
+        couleur: porte || choisi ? COULEURS.texteAccent : COULEURS.texte,
+      });
+      peintre.texteDroite(jeu.t('fiche.niveau', { niveau: membre.niveau }), VIRTUAL_WIDTH - 40, y);
+      peintre.barrePv(58, y + 12, 100, membre.pv / pvMax(membre));
+      peintre.texte(`${membre.pv}/${pvMax(membre)}`, 164, y + 10, { couleur: COULEURS.texteAttenue });
+
+      // Les deux flèches de rangement, allumées au survol. Sans elles, réordonner
+      // l'équipe demandait un clavier : le jeu se joue aussi au doigt et à la souris.
+      for (const sens of ['haut', 'bas'] as const) {
+        if (!this.flecheVisible(index, sens, jeu.state.equipe.length)) continue;
+        const zone = this.boutonOrdre(index, sens);
+        const survole = jeu.survole(zone.x, zone.y, zone.largeur, zone.hauteur);
+        peintre.texte(sens === 'haut' ? '▲' : '▼', zone.x + 2, zone.y, {
+          couleur: survole ? COULEURS.texteAccent : COULEURS.texteAttenue,
+        });
+      }
+    });
+
+    peintre.texte(jeu.t(this.porte === null ? 'menu.ordreAide' : 'menu.ordrePorte'), 18, VIRTUAL_HEIGHT - 22, {
+      couleur: COULEURS.texteAttenue,
     });
   }
 
@@ -670,16 +786,43 @@ export class SceneMenu implements Scene {
       peintre.plaqueType(type, jeu.nomType(type), 78 + index * (peintre.largeurPlaque + 4), 30);
     });
 
-    peintre.texte(`${jeu.t('fiche.talent')} : ${TALENTS[creature.talentId].nom[jeu.langue]}`, 78, 46, {
-      couleur: COULEURS.texteAttenue,
+    // Les statistiques calculées, en colonne à droite.
+    //
+    // La fiche disait les gènes et le dressage — les ingrédients — sans jamais donner le
+    // résultat : on savait qu'un spécimen était bien né sans pouvoir dire s'il frappait
+    // plus fort que son voisin. Le calcul existait pour le combat, et le joueur en était
+    // le seul à ne pas y avoir accès.
+    //
+    // La colonne va à droite parce que c'est la seule place libre : sur deux cent huit
+    // pixels de haut, tout ce qui rallongerait la fiche passerait sous le bord. Les
+    // lignes de gauche se tronquent d'autant pour ne pas la percuter.
+    //
+    // Les points de vie ne sont pas du lot : ils ont leur barre plus bas, avec ce qu'il
+    // en reste — un maximum répété en chiffres ne dirait rien de plus.
+    const colonneStats = VIRTUAL_WIDTH - 96;
+    BATTLE_STATS.forEach((stat, index) => {
+      peintre.texte(jeu.nomStatCourt(stat), colonneStats, 30 + index * 10, {
+        couleur: COULEURS.texteAttenue,
+      });
+      peintre.texteDroite(`${statistique(creature, stat)}`, VIRTUAL_WIDTH - 20, 30 + index * 10);
     });
-    peintre.texte(
+
+    const largeurGauche = colonneStats - 78 - 8;
+    peintre.texteTronque(
+      `${jeu.t('fiche.talent')} : ${TALENTS[creature.talentId].nom[jeu.langue]}`,
+      78,
+      46,
+      largeurGauche,
+      { couleur: COULEURS.texteAttenue },
+    );
+    peintre.texteTronque(
       jeu.t('fiche.taille', { taille: species.taille.toFixed(1), poids: species.poids.toFixed(1) }),
       78,
       56,
+      largeurGauche,
       { couleur: COULEURS.texteAttenue },
     );
-    peintre.texte(jeu.t('fiche.origine', { seed: creature.origine }), 78, 66, {
+    peintre.texteTronque(jeu.t('fiche.origine', { seed: creature.origine }), 78, 66, largeurGauche, {
       couleur: COULEURS.texteAttenue,
     });
 

@@ -9,11 +9,11 @@
 import { makeRng, type Rng } from '../core/rng.ts';
 import type { Entrees, Point } from '../core/input.ts';
 import { SPECIES, type SpeciesId } from '../data/species.ts';
-import { MOVES, type MoveId } from '../data/moves.ts';
+import { MOVES, type Move, type MoveId } from '../data/moves.ts';
 import { ITEMS, type ItemId } from '../data/items.ts';
 import { TALENTS, type TalentId } from '../data/talents.ts';
 import { TYPE_NAMES, type ElementType } from '../data/types.ts';
-import { STAT_NAMES, type StatKey } from '../data/stats.ts';
+import { STAT_NAMES, STATUS_NAMES, stageMultiplier, type StatKey } from '../data/stats.ts';
 import { LANGUES, traduire, type CleTexte, type Langue, type Params } from '../i18n/index.ts';
 import { appliquerLangueAuDocument } from '../i18n/preference.ts';
 import { BoiteDialogue } from '../ui/dialogue.ts';
@@ -45,6 +45,18 @@ export interface Scene {
 
 /** Intervalle minimal entre deux écritures automatiques, en millisecondes. */
 const INTERVALLE_SAUVEGARDE_MS = 10_000;
+
+/**
+ * Ce que vaut un nombre d'étages, en pourcentage de la statistique de départ.
+ *
+ * Un étage multiplie par 1,5 — c'est-à-dire une moitié en plus, et c'est ce « +50 % »
+ * qu'il faut écrire plutôt qu'un « +1 cran » que rien n'explique. Une baisse d'un étage
+ * divise par 1,5, soit un tiers en moins : l'asymétrie de `stageMultiplier` est
+ * volontaire, et la phrase la reflète sans avoir à la connaître.
+ */
+export function ecartEnPourcent(etages: number): number {
+  return Math.round(Math.abs(stageMultiplier(etages) - 1) * 100);
+}
 
 export class Jeu {
   state: GameState;
@@ -210,6 +222,55 @@ export class Jeu {
 
   nomStatCourt(stat: StatKey): string {
     return STAT_NAMES[stat].court;
+  }
+
+  /**
+   * Ce que fait une attaque, en une phrase — ou `null` si elle se contente de frapper.
+   *
+   * Une attaque de statut ne s'annonçait que par le mot « Statut » : le joueur voyait
+   * qu'Onde de Choc ne fait aucun dégât sans jamais apprendre qu'elle paralyse à coup
+   * sûr, et lançait Repli sans savoir qu'il vaut la moitié d'une Défense en plus.
+   * `move.effet` vivait dans les données depuis toujours, sans un seul lecteur.
+   *
+   * Les pourcentages viennent de `stageMultiplier`, la formule qu'applique réellement le
+   * moteur — pas d'un tableau recopié à la main qui mentirait au premier rééquilibrage.
+   */
+  effetAttaque(move: Move): string | null {
+    const effet = move.effet;
+    if (!effet) return null;
+
+    switch (effet.kind) {
+      case 'statut':
+        return this.avecChance(this.t('effet.statut', { statut: STATUS_NAMES[effet.statut][this.langue] }), effet.chance);
+      case 'stat': {
+        const hausse = effet.etages > 0;
+        const cle = effet.cible === 'soi'
+          ? (hausse ? 'effet.soiHausse' : 'effet.soiBaisse')
+          : (hausse ? 'effet.cibleHausse' : 'effet.cibleBaisse');
+        return this.avecChance(
+          this.t(cle, { stat: STAT_NAMES[effet.stat][this.langue], pourcent: ecartEnPourcent(effet.etages) }),
+          effet.chance,
+        );
+      }
+      case 'coupsMultiples':
+        return this.t('effet.coupsMultiples', { min: effet.min, max: effet.max });
+      case 'recul':
+        return this.t('effet.recul', { pourcent: Math.round(effet.fraction * 100) });
+      case 'soin':
+        return this.t(effet.guerit ? 'effet.soinGuerit' : 'effet.soin', {
+          pourcent: Math.round(effet.fraction * 100),
+        });
+      case 'drain':
+        return this.t('effet.drain', { pourcent: Math.round(effet.fraction * 100) });
+      case 'critique':
+        return this.t('effet.critique');
+    }
+  }
+
+  /** Un effet certain se dit sans probabilité : « Inflige Paralysie », pas « … (100 %) ». */
+  private avecChance(effet: string, chance: number): string {
+    if (chance >= 1) return effet;
+    return this.t('effet.chance', { effet, chance: Math.round(chance * 100) });
   }
 
   // ── Sauvegarde automatique ─────────────────────────────────────────────────

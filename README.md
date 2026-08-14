@@ -17,6 +17,7 @@ opens the sanctum, where the creatures that appear nowhere else can finally be c
 | **Keyboard** | Arrows, WASD or ZQSD (AZERTY) to move · `Enter`, `Space` or `E` to talk, read, pick up · `Escape`, `Backspace` or `M` for the menu |
 | **Mouse** | Click a tile and the walk there happens on its own, around whatever is in the way · click a character or the water to go over and interact · click any row, creature or attack to pick it |
 | **Touch** | A D-pad plus menu, back and confirm appear on any device with a touchscreen |
+| **Party order** | In the team screen, right picks a creature up and the arrows carry it — or click the two arrows on its row. The order decides who leads and who is offered first when one falls |
 | **Settings** | Language, help and the encyclopedia sit directly in the title screen and the pause menu |
 
 The interface is available in English and French. English is the default; French is a

@@ -253,12 +253,17 @@ export class SceneEncyclopedie implements Scene {
     const largeur = VIRTUAL_WIDTH - x - 14;
 
     jeu.peintre.plaqueType(move.type, jeu.nomType(move.type), x, 26);
+    // L'effet passe avant la description : la prose dit l'intention, cette ligne dit la
+    // règle. Une attaque de statut n'annonçait que sa catégorie, et le rayon des attaques
+    // ne servait donc à rien pour les quatorze qui ne frappent pas.
+    const effet = jeu.effetAttaque(move);
     const suite = this.empiler(jeu, x, 42, largeur, [
       jeu.t(`encyclopedie.categorie.${move.categorie}` as CleTexte),
       `${jeu.t('fiche.puissance')} ${move.puissance || jeu.t('fiche.infaillible')}`,
       `${jeu.t('fiche.precision')} ${move.precision === 0 ? jeu.t('fiche.infaillible') : move.precision}`,
       `${jeu.t('encyclopedie.pp')} ${move.pp}`,
       ...(move.priorite !== 0 ? [jeu.t('encyclopedie.priorite', { valeur: move.priorite })] : []),
+      ...(effet ? [effet] : []),
     ]);
     this.description(jeu, move.description[jeu.langue], x, suite + 4, largeur);
   }

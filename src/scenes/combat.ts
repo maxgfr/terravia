@@ -12,11 +12,11 @@ import { MOVES, type MoveId } from '../data/moves.ts';
 import { SPECIES } from '../data/species.ts';
 import { effectivenessAgainst, effectivenessTier } from '../data/types.ts';
 import type { CleTexte } from '../i18n/index.ts';
-import { STAT_NAMES, STATUS_NAMES } from '../data/stats.ts';
+import { BATTLE_STATS, STAT_NAMES, STATUS_NAMES } from '../data/stats.ts';
 import { ITEMS } from '../data/items.ts';
 import { TALENTS, type TalentId } from '../data/talents.ts';
 import { choisirAttaque, choisirRemplacant, type NiveauIA } from '../battle/ai.ts';
-import { creerCombattant } from '../battle/damage.ts';
+import { creerCombattant, type Combattant } from '../battle/damage.ts';
 import {
   creerCombat,
   evenementsEntree,
@@ -35,7 +35,7 @@ import {
   pvMax,
   type CreatureInstance,
 } from '../game/creature.ts';
-import type { Jeu, Scene } from '../game/jeu.ts';
+import { ecartEnPourcent, type Jeu, type Scene } from '../game/jeu.ts';
 import {
   accueillirCreature,
   avancerTemps,
@@ -82,6 +82,15 @@ export class SceneCombat implements Scene {
   private selection = 0;
   private defilement = 0;
   private attente = false;
+  /**
+   * Le menu d'équipe est ouvert parce qu'une créature est tombée : on n'en sort pas
+   * sans en avoir désigné une autre.
+   */
+  private remplacementForce = false;
+  /** Ce changement-ci ne coûte pas le tour : l'adversaire n'avait rien à jouer. */
+  private changementGratuit = false;
+  /** Un adversaire frais vient d'entrer : proposer le changement dès la file vidée. */
+  private changementOffert = false;
 
   // ── Animation ──────────────────────────────────────────────────────────────
   // Purement décorative : rien ici ne touche à l'état du combat, qui est déjà résolu
@@ -134,17 +143,36 @@ export class SceneCombat implements Scene {
     jeu.sauvegarderLocalement();
   }
 
-  /** Dépose l'échange en cours dans la partie, sans l'écrire. */
+  /**
+   * Dépose l'échange en cours dans la partie, sans l'écrire.
+   *
+   * Un remplacement en attente compte comme un combat en cours : le joueur est devant le
+   * menu d'équipe, sa créature à terre, et fermer l'onglet là ne doit pas lui faire
+   * perdre la rencontre. `enregistrer` sait quoi écrire dans ce cas.
+   */
   avantSauvegarde(jeu: Jeu): void {
-    if (this.state.issue === null) this.enregistrer(jeu, false);
+    if (this.state.issue === null || this.remplacementForce) this.enregistrer(jeu, false);
   }
 
+  /**
+   * Fige le combat dans la partie.
+   *
+   * `indexJoueur` est normalisé sur une créature debout : la validation refuse un combat
+   * repris sur une créature à terre — et à juste titre, il n'y aurait personne pour
+   * jouer le tour. Le cas se produit vraiment, entre le K.O. et le choix du remplaçant.
+   * On reprend alors avec la première créature en état de se battre, ce qui revient à
+   * jouer le choix par défaut plutôt qu'à refuser la sauvegarde.
+   */
   private enregistrer(jeu: Jeu, ecrire = true): void {
+    const debout =
+      jeu.state.equipe[this.indexJoueur]!.pv > 0
+        ? this.indexJoueur
+        : jeu.state.equipe.findIndex((membre) => membre.pv > 0);
     jeu.state.combat = {
       genre: this.rencontre.genre,
       adversaires: this.rencontre.adversaires,
       dresseurId: this.rencontre.dresseur?.id ?? null,
-      indexJoueur: this.indexJoueur,
+      indexJoueur: Math.max(0, debout),
       indexAdverse: this.indexAdverse,
       etagesJoueur: { ...this.state.joueur.etages },
       etagesAdverse: { ...this.state.adversaire.etages },
@@ -311,13 +339,20 @@ export class SceneCombat implements Scene {
    * dans les quarante-six pixels du menu ordinaire. Plutôt que de rogner la moitié basse
    * du terrain pour tous les écrans — les créatures et leurs jauges y sont placées —,
    * ce menu-ci seul empiète sur le décor, le temps qu'on choisisse.
+   *
+   * Il empiète depuis qu'il dit aussi ce que fait l'attaque visée : sur un écran de deux
+   * cent huit pixels de haut, il couvre la créature du joueur. C'est le prix d'un
+   * renseignement qui ne se lit qu'à cet instant — celui où l'on choisit —, et il ne
+   * dure que le temps du choix. Le bas reste ancré au bandeau, si bien que les quatre
+   * lignes d'attaques ne bougent pas d'un pixel quand la hauteur change.
    */
   private cadreAttaques(): { x: number; y: number; largeur: number; hauteur: number } {
+    const hauteur = 96;
     return {
       x: 6,
-      y: VIRTUAL_HEIGHT - HAUTEUR_MENU - 26,
+      y: VIRTUAL_HEIGHT - HAUTEUR_MENU - (hauteur - 46),
       largeur: VIRTUAL_WIDTH - 12,
-      hauteur: 72,
+      hauteur,
     };
   }
 
@@ -402,10 +437,20 @@ export class SceneCombat implements Scene {
     }
   }
 
+  /**
+   * Le choix du combattant : volontaire, offert, ou imposé par un K.O.
+   *
+   * Les trois passent par ce menu, et n'en diffèrent que sur deux points — ce que fait
+   * « annuler », et si le tour est consommé. Un changement volontaire coûte le tour :
+   * c'est ce qui l'empêche d'être gratuit à chaque échange. Les deux autres arrivent
+   * dans une brèche où l'adversaire n'a rien à jouer, et ne coûtent donc rien.
+   */
   private menuEquipe(jeu: Jeu): void {
     const equipe = jeu.state.equipe;
     this.naviguer(jeu, equipe.length);
-    if (jeu.entrees.pressee('annuler')) {
+    // Un remplacement imposé ne se referme pas : il n'y a rien derrière lui, la créature
+    // précédente est à terre. Sortir du menu laisserait le combat sans combattant.
+    if (jeu.entrees.pressee('annuler') && !this.remplacementForce) {
       this.allerAu('racine');
       return;
     }
@@ -413,28 +458,93 @@ export class SceneCombat implements Scene {
 
     const choisi = equipe[this.selection];
     if (!choisi) return;
-    if (this.selection === this.indexJoueur) {
+    if (this.selection === this.indexJoueur && !this.remplacementForce) {
       jeu.dialogue.dire(jeu.t('combat.dejaEnJeu', { nom: jeu.nomCreature(choisi) }));
       return;
     }
     if (choisi.pv <= 0) {
-      jeu.dialogue.dire(jeu.t('combat.pasDeFuite'));
+      jeu.dialogue.dire(jeu.t('combat.creatureKo'));
       return;
     }
-    this.indexJoueur = this.selection;
-    this.state.joueur = creerCombattant(choisi);
+
+    const impose = this.remplacementForce;
+    const gratuit = this.changementGratuit;
+    this.remplacementForce = false;
+    this.changementGratuit = false;
+    this.envoyer(jeu, this.selection);
+
+    if (impose || gratuit) {
+      // Personne n'attend son tour : la créature entre, son talent se déclenche, et la
+      // main revient au joueur. Passer par `agir` offrirait à l'adversaire une attaque
+      // qu'il n'a pas gagnée — mais il faut refermer le menu comme `agir` le ferait,
+      // sans quoi le joueur retrouve la liste d'équipe au lieu de ses actions.
+      this.allerAu('racine');
+      this.state.issue = null;
+      this.jouer(jeu, evenementsEntree(this.state, 'joueur'));
+      return;
+    }
+    // Le talent d'entrée se déclenche ici aussi : c'est l'argument, évalué avant que le
+    // tour ne se résolve, qui garantit qu'Intimidation ait porté quand l'adversaire
+    // frappe la créature entrante.
+    this.agir(jeu, { kind: 'changer' }, evenementsEntree(this.state, 'joueur'));
+  }
+
+  /**
+   * Met une créature de l'équipe sur le terrain.
+   *
+   * Le talent d'entrée se déclenchait à l'ouverture du combat, au K.O. et à l'arrivée du
+   * remplaçant adverse — mais pas quand le joueur changeait de son plein gré. Un même
+   * geste avait deux effets selon le chemin qui y menait ; c'est ce point de passage
+   * unique qui l'empêche de se reproduire.
+   */
+  private envoyer(jeu: Jeu, index: number): void {
+    const creature = jeu.state.equipe[index]!;
+    this.indexJoueur = index;
+    this.state.joueur = creerCombattant(creature);
     this.reinitialiserAnimation('joueur');
-    jeu.dialogue.dire(jeu.t('combat.envoie', { nom: jeu.nomCreature(choisi) }));
-    this.agir(jeu, { kind: 'changer' });
+    jeu.dialogue.dire(jeu.t('combat.envoie', { nom: jeu.nomCreature(creature) }));
+  }
+
+  /**
+   * Offre le changement à l'arrivée d'un adversaire frais.
+   *
+   * C'est aussi ce qui rend le changement découvrable : il existait depuis toujours,
+   * enfoui sous « Équipe » dans le menu racine, et se voyait si peu qu'on jouait des
+   * parties entières sans le trouver. Il se propose désormais de lui-même, au seul
+   * moment où il ne coûte rien.
+   */
+  private proposerChangement(jeu: Jeu): void {
+    void jeu.dialogue
+      .demander(jeu.t('combat.changerQuestion'), [jeu.t('depart.oui'), jeu.t('depart.non')])
+      .then((choix) => {
+        if (choix === 0) this.demanderRemplacant(jeu, false);
+      });
+  }
+
+  /** Ouvre le menu d'équipe pour désigner un combattant, imposé ou simplement offert. */
+  private demanderRemplacant(jeu: Jeu, impose: boolean): void {
+    this.remplacementForce = impose;
+    this.changementGratuit = true;
+    this.allerAu('equipe');
+    // Le curseur part sur la première créature en état de se battre : dans un
+    // remplacement imposé, celle qui vient de tomber est encore sous le curseur.
+    const premier = jeu.state.equipe.findIndex((membre) => membre.pv > 0 && membre !== this.creatureJoueur);
+    if (premier >= 0) this.selection = premier;
+    this.defilement = fenetre(this.selection, jeu.state.equipe.length);
   }
 
   // ── Résolution ─────────────────────────────────────────────────────────────
 
-  private agir(jeu: Jeu, action: Action): void {
+  /**
+   * @param avant Événements déjà produits, à jouer devant ceux du tour. C'est par là que
+   *   passe le talent d'une créature qu'on vient d'envoyer : il s'est déclenché avant
+   *   que le tour ne se résolve, et doit se raconter dans cet ordre-là.
+   */
+  private agir(jeu: Jeu, action: Action, avant: readonly BattleEvent[] = []): void {
     this.allerAu('racine');
     const choixAdverse = choisirAttaque(this.state.adversaire, this.state.joueur, this.niveauIA, jeu.rng);
     const evenements = resoudreTour(this.state, action, choixAdverse, jeu.rng);
-    this.jouer(jeu, evenements);
+    this.jouer(jeu, [...avant, ...evenements]);
   }
 
   /** Traduit chaque événement du moteur en une ligne de dialogue. */
@@ -570,6 +680,10 @@ export class SceneCombat implements Scene {
         // La main revient au joueur : c'est le point de reprise naturel, et donc le bon
         // moment pour figer le combat sur le disque.
         this.enregistrer(jeu);
+        if (this.changementOffert) {
+          this.changementOffert = false;
+          this.proposerChangement(jeu);
+        }
         return;
       case 'fuite':
         jeu.retirer();
@@ -659,6 +773,10 @@ export class SceneCombat implements Scene {
             nom: jeu.nomCreature(this.adversaire),
           }),
         );
+        // Une créature fraîche entre en face : c'est le seul moment où changer ne coûte
+        // rien, et donc le seul où la question vaut d'être posée. Elle attend la fin des
+        // répliques d'entrée — `jouer` tient déjà la file, on ne peut pas la doubler.
+        this.changementOffert = equipeDebout(jeu.state).length > 1;
         this.jouer(jeu, evenementsEntree(this.state, 'adversaire'));
       });
       return;
@@ -727,15 +845,26 @@ export class SceneCombat implements Scene {
       });
   }
 
+  /**
+   * Une créature tombe : le joueur désigne celle qui prend la relève.
+   *
+   * Le premier membre debout entrait de lui-même, en silence. Une équipe rangée dans
+   * l'ordre où on l'a capturée envoyait donc n'importe qui contre n'importe quoi, et le
+   * joueur découvrait le mauvais choix après coup, sans l'avoir fait.
+   *
+   * Un seul survivant ne se choisit pas : lui poser la question serait lui demander de
+   * valider une évidence, au pire moment.
+   */
   private creatureVaincue(jeu: Jeu): void {
     const debout = equipeDebout(jeu.state);
-    if (debout.length > 0) {
-      const suivant = jeu.state.equipe.indexOf(debout[0]!);
-      this.indexJoueur = suivant;
-      this.state.joueur = creerCombattant(debout[0]!);
+    if (debout.length > 1) {
+      jeu.dialogue.dire(jeu.t('combat.quiEnvoyer'));
+      jeu.dialogue.puis(() => this.demanderRemplacant(jeu, true));
+      return;
+    }
+    if (debout.length === 1) {
       this.state.issue = null;
-      this.reinitialiserAnimation('joueur');
-      jeu.dialogue.dire(jeu.t('combat.envoie', { nom: jeu.nomCreature(debout[0]!) }));
+      this.envoyer(jeu, jeu.state.equipe.indexOf(debout[0]!));
       this.jouer(jeu, evenementsEntree(this.state, 'joueur'));
       return;
     }
@@ -798,6 +927,12 @@ export class SceneCombat implements Scene {
     this.dessinerJauge(jeu, this.adversaire, 8, 10, false, this.pvAffiches.adversaire);
     this.dessinerJauge(jeu, this.creatureJoueur, VIRTUAL_WIDTH - 130, utile - 56, true, this.pvAffiches.joueur);
 
+    // Les étages se posent, se lisent dans chaque calcul, et ne se voyaient nulle part :
+    // lancer Aiguisage deux fois ne laissait aucune trace à l'écran, et le joueur ne
+    // pouvait ni constater son propre travail ni comprendre pourquoi il encaissait plus.
+    this.dessinerEtages(jeu, this.state.adversaire, 8, 46);
+    this.dessinerEtages(jeu, this.state.joueur, VIRTUAL_WIDTH - 130, utile - 14);
+
     if (!jeu.dialogue.actif && !this.attente) this.dessinerMenu(jeu);
     jeu.dialogue.dessiner();
   }
@@ -831,6 +966,34 @@ export class SceneCombat implements Scene {
       const haut = experienceForLevel(creature.niveau + 1, species.croissance);
       const progression = haut > bas ? (creature.xp - bas) / (haut - bas) : 0;
       peintre.barreXp(x + 8, y + 30, 106, progression);
+    }
+  }
+
+  /**
+   * Les hausses et les baisses en cours sur un combattant, ou rien s'il est intact.
+   *
+   * Le pourcentage plutôt que le nombre d'étages : « ATT +50% » se comprend sans avoir
+   * lu la formule, « ATT +1 » demande de la connaître. C'est la même conversion que dans
+   * les fiches d'attaque, et elle vient du même endroit — la formule du moteur.
+   *
+   * Rien ne s'affiche quand rien n'a bougé : une ligne vide sous chaque jauge à chaque
+   * combat coûterait plus d'attention qu'elle n'en mérite.
+   */
+  private dessinerEtages(jeu: Jeu, combattant: Combattant, x: number, y: number): void {
+    const modifies = BATTLE_STATS.filter((stat) => combattant.etages[stat] !== 0);
+    if (modifies.length === 0) return;
+
+    const peintre = jeu.peintre;
+    let curseur = x + 8;
+    for (const stat of modifies) {
+      const etages = combattant.etages[stat];
+      const hausse = etages > 0;
+      const libelle = `${jeu.nomStatCourt(stat)} ${hausse ? '+' : '-'}${ecartEnPourcent(etages)}%`;
+      // Au-delà du bord du panneau, on s'arrête : deux statistiques y tiennent, et les
+      // suivantes déborderaient sur le terrain plutôt que de se faire lire.
+      if (curseur + peintre.largeurTexte(libelle) > x + 122) return;
+      peintre.texte(libelle, curseur, y, { couleur: hausse ? COULEURS.pvHaut : COULEURS.pvBas });
+      curseur += peintre.largeurTexte(`${libelle}  `);
     }
   }
 
@@ -869,11 +1032,21 @@ export class SceneCombat implements Scene {
       return;
     }
 
+    // Choisir qui envoyer demande de savoir qui est encore debout, à quel niveau et dans
+    // quel état : le nom et les points de vie ne suffisaient pas, et ce menu est devenu
+    // un passage obligé le jour où une créature tombe.
     this.listeDeroulante(
       jeu,
       jeu.state.equipe,
       y,
-      (membre) => `${jeu.nomCreature(membre)}  ${membre.pv}/${pvMax(membre)}`,
+      (membre) => {
+        const statut = membre.statut ? `  ${STATUS_NAMES[membre.statut].court}` : '';
+        const enJeu = membre === this.creatureJoueur ? ' ·' : '';
+        return `${jeu.nomCreature(membre)}${enJeu}  ${jeu.t('fiche.niveau', {
+          niveau: membre.niveau,
+        })}  ${membre.pv}/${pvMax(membre)}${statut}`;
+      },
+      (membre) => membre.pv > 0,
     );
   }
 
@@ -916,9 +1089,15 @@ export class SceneCombat implements Scene {
   /**
    * Ce que fait l'attaque visée, et ce qu'elle vaut contre l'adversaire du moment.
    *
-   * C'est la réponse à « on se perd » : la plaque dit le type, cette ligne dit ce qu'il
-   * change ici et maintenant. Sans elle, comprendre la table des types demandait d'ouvrir
-   * le Terradex entre deux tours, ou de l'apprendre par cœur.
+   * C'est la réponse à « on se perd » : la plaque dit le type, ces lignes disent ce
+   * qu'elle change ici et maintenant. Sans elles, comprendre la table des types demandait
+   * d'ouvrir le Terradex entre deux tours, ou de l'apprendre par cœur.
+   *
+   * Trois registres, du plus dur au plus tendre : les chiffres, puis la règle, puis la
+   * prose. La ligne d'effet est celle qui manquait le plus — une attaque de statut
+   * n'affichait que le mot « Statut », et rien ne disait qu'Onde de Choc paralyse à coup
+   * sûr. La description, elle, est tronquée plutôt que repliée : l'encyclopédie la donne
+   * en entier, ici il ne s'agit que de reconnaître ce qu'on s'apprête à lancer.
    */
   private dessinerDetailAttaque(jeu: Jeu, x: number, y: number, bordDroit: number): void {
     const slot = this.creatureJoueur.moves[this.selection];
@@ -935,20 +1114,51 @@ export class SceneCombat implements Scene {
     peintre.texte(chiffres, x, y, { couleur: COULEURS.texteAttenue });
 
     // Une attaque de statut ne se mesure pas à la table des types : l'annoncer
-    // « très efficace » induirait en erreur.
-    if (move.categorie === 'statut') return;
-    const palier = effectivenessTier(effectivenessAgainst(move.type, SPECIES[this.adversaire.speciesId].types));
-    if (palier === 'neutral') return;
-    peintre.texteDroite(jeu.t(`combat.efficace.${palier}` as CleTexte), bordDroit, y, {
-      couleur: palier === 'strong' || palier === 'veryStrong' ? COULEURS.pvHaut : COULEURS.pvBas,
+    // « très efficace » induirait en erreur. Elle garde en revanche son effet et sa
+    // description, qui sont justement tout ce qu'elle a à dire.
+    if (move.categorie !== 'statut') {
+      const palier = effectivenessTier(effectivenessAgainst(move.type, SPECIES[this.adversaire.speciesId].types));
+      if (palier !== 'neutral') {
+        peintre.texteDroite(jeu.t(`combat.efficace.${palier}` as CleTexte), bordDroit, y, {
+          couleur: palier === 'strong' || palier === 'veryStrong' ? COULEURS.pvHaut : COULEURS.pvBas,
+        });
+      }
+    }
+
+    const largeur = bordDroit - x;
+    const effet = jeu.effetAttaque(move);
+    if (effet) {
+      peintre.texteTronque(effet, x, y + peintre.hauteurLigne, largeur, { couleur: COULEURS.texteAccent });
+    }
+    peintre.texteTronque(move.description[jeu.langue], x, y + peintre.hauteurLigne * 2, largeur, {
+      couleur: COULEURS.texteAttenue,
     });
   }
 
-  /** Dessine la tranche visible d'une liste, avec un repère quand elle déborde. */
-  private listeDeroulante<T>(jeu: Jeu, entrees: readonly T[], y: number, libelle: (entree: T) => string): void {
+  /**
+   * Dessine la tranche visible d'une liste, avec un repère quand elle déborde.
+   *
+   * `disponible` atténue ce qu'on ne peut pas choisir — une créature à terre reste
+   * affichée, parce qu'elle fait partie de l'équipe, mais rien ne doit laisser croire
+   * qu'on peut l'envoyer.
+   */
+  private listeDeroulante<T>(
+    jeu: Jeu,
+    entrees: readonly T[],
+    y: number,
+    libelle: (entree: T) => string,
+    disponible?: (entree: T) => boolean,
+  ): void {
     entrees.slice(this.defilement, this.defilement + LIGNES_VISIBLES).forEach((entree, ligne) => {
       const index = this.defilement + ligne;
-      this.option(jeu, libelle(entree), 20, y + 8 + ligne * 12, index === this.selection);
+      this.option(
+        jeu,
+        libelle(entree),
+        20,
+        y + 8 + ligne * 12,
+        index === this.selection,
+        disponible ? disponible(entree) : true,
+      );
     });
     if (entrees.length > LIGNES_VISIBLES) {
       jeu.peintre.texteDroite(`${this.selection + 1}/${entrees.length}`, VIRTUAL_WIDTH - 16, y + 32, {
@@ -957,9 +1167,10 @@ export class SceneCombat implements Scene {
     }
   }
 
-  private option(jeu: Jeu, libelle: string, x: number, y: number, choisi: boolean): void {
+  private option(jeu: Jeu, libelle: string, x: number, y: number, choisi: boolean, disponible = true): void {
     if (choisi) jeu.peintre.texte('▶', x - 10, y, { couleur: COULEURS.selection });
-    jeu.peintre.texte(libelle, x, y, { couleur: choisi ? COULEURS.texteAccent : COULEURS.texte });
+    const couleur = !disponible ? COULEURS.texteAttenue : choisi ? COULEURS.texteAccent : COULEURS.texte;
+    jeu.peintre.texteTronque(libelle, x, y, VIRTUAL_WIDTH - x - 26, { couleur });
   }
 }
 

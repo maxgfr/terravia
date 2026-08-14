@@ -13,8 +13,8 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Assets } from '../src/core/assets.ts';
 import type { ActionJeu, Entrees, Point } from '../src/core/input.ts';
-import { Jeu } from '../src/game/jeu.ts';
-import { creerCreature } from '../src/game/creature.ts';
+import { Jeu, ecartEnPourcent } from '../src/game/jeu.ts';
+import { creerCreature, statistique } from '../src/game/creature.ts';
 import {
   accueillirCreature,
   ajouterObjet,
@@ -37,7 +37,7 @@ import { CHARACTER_IDS } from '../src/world/characterIds.ts';
 import { ELEMENT_TYPES, effectivenessAgainst, type ElementType } from '../src/data/types.ts';
 import { ITEMS, ITEM_IDS } from '../src/data/items.ts';
 import { SPECIES, SPECIES_IDS } from '../src/data/species.ts';
-import { experienceForLevel } from '../src/data/stats.ts';
+import { BATTLE_STATS, STATUS_NAMES, STAT_NAMES, experienceForLevel } from '../src/data/stats.ts';
 import { TILES, TILE_IDS } from '../src/world/tiles.ts';
 import { lireTuile } from '../src/world/region.ts';
 import { trouverChemin } from '../src/world/chemin.ts';
@@ -2908,8 +2908,10 @@ describe('pointeur', () => {
     banc.trame();
 
     // La liste d'attaques a son propre panneau, plus haut : une attaque par ligne,
-    // douze pixels de pas. On vise la seconde.
-    banc.entrees.cliquer(60, VIRTUAL_HEIGHT - 52 - 26 + 8 + 12);
+    // douze pixels de pas. On vise la seconde. Le panneau est ancré par le bas — il
+    // dépasse de cinquante pixels au-dessus du bandeau depuis qu'il dit aussi l'effet
+    // et la description de l'attaque visée —, donc les quatre lignes ne bougent pas.
+    banc.entrees.cliquer(60, VIRTUAL_HEIGHT - 52 - 50 + 8 + 12);
     banc.trame();
     for (let i = 0; i < 10; i++) banc.trame();
 
@@ -2950,5 +2952,532 @@ describe('pointeur', () => {
     expect(banc.jeu.sommet?.nom).toBe('overworld');
     expect(banc.jeu.state.equipe).toHaveLength(1);
     expect(banc.jeu.state.equipe[0]!.speciesId).toBe(banc.jeu.monde.starters[2]);
+  });
+});
+
+/**
+ * Ce que fait une attaque, et où le joueur peut enfin le lire.
+ *
+ * Les quatorze attaques qui ne frappent pas n'annonçaient que le mot « Statut » : la
+ * donnée `move.effet` vivait dans le catalogue depuis toujours sans qu'aucun écran ne
+ * la lise, si bien qu'on lançait Onde de Choc sans savoir qu'elle paralyse.
+ */
+describe('effet d’une attaque', () => {
+  it('rend chacune des attaques du catalogue sans jamais rendre une phrase vide', () => {
+    const banc = creerBanc();
+    for (const id of MOVE_IDS) {
+      const effet = banc.jeu.effetAttaque(MOVES[id]);
+      if (MOVES[id].effet === undefined) {
+        expect(effet, `${id} n’a pas d’effet et ne doit rien annoncer`).toBeNull();
+        continue;
+      }
+      expect(effet, `${id} a un effet, il doit se dire`).not.toBeNull();
+      expect(effet!.trim().length, `${id} rend une phrase vide`).toBeGreaterThan(0);
+      // Un gabarit dont un paramètre n'a pas été substitué se voit à ses accolades.
+      expect(effet, `${id} laisse un paramètre non substitué`).not.toMatch(/[{}]/);
+    }
+  });
+
+  it('couvre les sept familles d’effet, dans les deux langues', () => {
+    const familles = new Set(MOVE_IDS.map((id) => MOVES[id].effet?.kind).filter((kind) => kind !== undefined));
+    expect(familles.size, 'le catalogue n’exerce plus les sept familles').toBe(7);
+
+    for (const langue of ['fr', 'en'] as const) {
+      const banc = creerBanc(langue);
+      for (const id of MOVE_IDS) {
+        if (!MOVES[id].effet) continue;
+        expect(banc.jeu.effetAttaque(MOVES[id])).not.toMatch(/[{}]/);
+      }
+    }
+  });
+
+  it('dit qu’Onde de Choc paralyse, et à coup sûr', () => {
+    const banc = creerBanc();
+    const effet = banc.jeu.effetAttaque(MOVES.ondeDeChoc)!;
+    expect(effet).toContain(STATUS_NAMES.paralysie.fr);
+    // Un effet certain se dit sans probabilité : « (100 % du temps) » serait du bruit.
+    expect(effet).not.toContain('100');
+  });
+
+  /**
+   * Le point de départ de tout ceci : « une amélioration de 50 % des attaques ou
+   * autre », disait le rapport. C'est exactement ce que vaut un étage — encore
+   * fallait-il l'écrire.
+   */
+  it('chiffre un étage en pourcentage, hausse comme baisse', () => {
+    expect(ecartEnPourcent(1)).toBe(50);
+    expect(ecartEnPourcent(2)).toBe(100);
+    // L'asymétrie de `stageMultiplier` est volontaire : baisser vaut moins que hausser.
+    expect(ecartEnPourcent(-1)).toBe(33);
+
+    const banc = creerBanc();
+    // Repli monte d'un cran, Aiguisage de deux : la phrase suit la donnée, elle ne
+    // suppose pas qu'un cran soit la norme.
+    expect(banc.jeu.effetAttaque(MOVES.repli)).toContain('50');
+    expect(banc.jeu.effetAttaque(MOVES.aiguisage)).toContain('100');
+    expect(banc.jeu.effetAttaque(MOVES.cri)).toContain('33');
+  });
+
+  it('affiche l’effet et la description sous les attaques, sans sortir du cadre', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(31), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 20,
+        origine: 'brume-3f7a',
+      }),
+    );
+    // Une attaque dont on connaît l'effet et la description, pour les chercher à l'écran.
+    banc.jeu.state.equipe[0]!.moves[0] = { id: 'aiguisage', pp: MOVES.aiguisage.pp };
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(32), {
+            uid: 'sauvage-effet',
+            speciesId: 'plumelle',
+            niveau: 12,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    banc.entrees.presser('valider'); // « Attaquer »
+    banc.trame();
+    debordements = [];
+    textesDessines = [];
+    banc.trame();
+
+    const effet = banc.jeu.effetAttaque(MOVES.aiguisage)!;
+    expect(textesDessines, 'l’effet de l’attaque visée').toContain(effet);
+    expect(textesDessines.some((texte) => MOVES.aiguisage.description.fr.startsWith(texte.replace('…', '')))).toBe(true);
+    expect(debordements, 'le panneau élargi déborde').toEqual([]);
+  });
+});
+
+/**
+ * Qui entre quand une créature tombe.
+ *
+ * Le premier membre debout entrait de lui-même, en silence : une équipe rangée dans
+ * l'ordre où on l'a capturée envoyait donc n'importe qui contre n'importe quoi, et le
+ * joueur découvrait le mauvais choix après coup, sans l'avoir fait.
+ */
+describe('remplacement au K.O.', () => {
+  /** Un banc en combat de dresseur, avec une équipe de la taille demandée. */
+  function bancContreDresseur(taille: number): Banc {
+    const banc = creerBanc();
+    for (let index = 0; index < taille; index++) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(40 + index), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: 'folianz',
+          niveau: 20,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(50), {
+            uid: 'sauvage-ko',
+            speciesId: 'plumelle',
+            niveau: 30,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    return banc;
+  }
+
+  /** Met la créature active à terre et laisse la scène en tirer les conséquences. */
+  function abattreActive(banc: Banc, index: number): void {
+    banc.jeu.state.equipe[index]!.pv = 1;
+    // Un tour joué suffit : la créature à un point de vie ne survit pas à l'échange.
+    banc.entrees.presser('valider'); // « Attaquer »
+    banc.trame();
+    banc.entrees.presser('valider'); // la première attaque
+    for (let i = 0; i < 200 && banc.jeu.state.equipe[index]!.pv > 0; i++) banc.trame();
+  }
+
+  it('laisse le joueur désigner son remplaçant, et n’en sort pas sans', () => {
+    const banc = bancContreDresseur(3);
+    abattreActive(banc, 0);
+    for (let i = 0; i < 120 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    // « Annuler » ne referme rien : il n'y a pas de menu racine à retrouver tant que
+    // personne n'est sur le terrain.
+    for (let i = 0; i < 10; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    expect(banc.jeu.state.equipe[0]!.pv, 'la première est bien à terre').toBe(0);
+    expect(banc.jeu.sommet?.nom, 'le combat ne se referme pas de lui-même').toBe('combat');
+
+    // Le curseur est déjà posé sur une créature debout : valider suffit.
+    banc.entrees.presser('valider');
+    banc.trame();
+    // Puis la réplique d'entrée s'écoule, comme toute réplique : à la pression.
+    for (let i = 0; i < 120 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    expect(banc.jeu.state.combat?.indexJoueur, 'la créature choisie est entrée').toBeGreaterThan(0);
+    expect(banc.jeu.state.equipe[banc.jeu.state.combat!.indexJoueur]!.pv).toBeGreaterThan(0);
+  });
+
+  it('n’offre aucun choix quand il ne reste qu’une créature debout', () => {
+    const banc = bancContreDresseur(2);
+    abattreActive(banc, 0);
+    for (let i = 0; i < 200 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    // Une seule survivante : elle entre sans qu'on ait rien à valider.
+    expect(banc.jeu.state.combat?.indexJoueur).toBe(1);
+  });
+
+  it('ne laisse jamais la sauvegarde pointer une créature à terre', () => {
+    const banc = bancContreDresseur(3);
+    abattreActive(banc, 0);
+    for (let i = 0; i < 120 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    // Fermer l'onglet pendant le choix : la partie s'écrit telle qu'elle est. Une
+    // sauvegarde désignant une créature à terre est refusée au rechargement — elle
+    // reprendrait un combat que personne ne peut jouer.
+    const document = banc.jeu.documentDePartie();
+    expect(document, 'le combat en cours est enregistrable').not.toBeNull();
+    const index = document!.combat?.indexJoueur ?? 0;
+    expect(banc.jeu.state.equipe[index]!.pv, 'la sauvegarde désigne une créature debout').toBeGreaterThan(0);
+  });
+});
+
+/**
+ * L'ordre de l'équipe, et ce qu'une fiche a fini par dire.
+ *
+ * L'ordre décide qui part au combat en premier et dans quel ordre les remplaçants se
+ * présentent. Il ne se changeait que par des allers-retours en réserve, et par accident.
+ */
+describe('ordre de l’équipe', () => {
+  /** Un banc dans l'onglet Équipe, avec le nombre de créatures demandé. */
+  async function bancDansEquipe(taille: number): Promise<Banc> {
+    const banc = creerBanc();
+    for (let index = 0; index < taille; index++) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(60 + index), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: SPECIES_IDS[index]!,
+          niveau: 10 + index,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(new SceneMenu());
+    await ouvrirEntreeRacine(banc, 'menu.equipe');
+    return banc;
+  }
+
+  it('déplace une créature soulevée au clavier, et repose ce qu’elle portait', async () => {
+    const banc = await bancDansEquipe(3);
+    const [premiere, seconde] = banc.jeu.state.equipe.map((membre) => membre.uid);
+
+    // « est » soulève la créature sous le curseur, « sud » la descend d'un rang.
+    await banc.agir('est', 1);
+    await banc.agir('sud', 1);
+
+    expect(banc.jeu.state.equipe[0]!.uid, 'la seconde est remontée').toBe(seconde);
+    expect(banc.jeu.state.equipe[1]!.uid, 'la portée a pris sa place').toBe(premiere);
+
+    // On repose, et la validation retrouve son rôle : ouvrir la fiche.
+    await banc.agir('valider', 1);
+    await banc.agir('valider', 1);
+    expect(banc.jeu.state.equipe.map((membre) => membre.uid).slice(0, 2)).toEqual([seconde, premiere]);
+  });
+
+  it('ne fait pas boucler une créature portée d’un bout à l’autre de l’équipe', async () => {
+    const banc = await bancDansEquipe(3);
+    const avant = banc.jeu.state.equipe.map((membre) => membre.uid);
+
+    // Portée au premier rang, poussée vers le haut : le tour de liste la ferait traverser
+    // toute l'équipe d'un coup, ce que personne ne demande en appuyant une fois.
+    await banc.agir('est', 1);
+    await banc.agir('nord', 1);
+    expect(banc.jeu.state.equipe.map((membre) => membre.uid)).toEqual(avant);
+  });
+
+  it('range aussi à la souris, sans rien avoir à soulever', async () => {
+    const banc = await bancDansEquipe(3);
+    const [premiere, seconde] = banc.jeu.state.equipe.map((membre) => membre.uid);
+
+    // La flèche « bas » de la première ligne : deux boutons de onze pixels, à droite.
+    banc.entrees.cliquer(VIRTUAL_WIDTH - 34 + 6, 30 + 11 + 5);
+    await banc.trameAsync();
+
+    expect(banc.jeu.state.equipe.map((membre) => membre.uid).slice(0, 2)).toEqual([seconde, premiere]);
+  });
+
+  it('repose la créature portée en quittant l’onglet', async () => {
+    const banc = await bancDansEquipe(3);
+    await banc.agir('est', 1);
+    await banc.agir('annuler', 1); // repose
+    await banc.agir('annuler', 1); // remonte au menu racine
+    const ordre = banc.jeu.state.equipe.map((membre) => membre.uid);
+
+    await ouvrirEntreeRacine(banc, 'menu.equipe');
+    // Rien ne bouge tant qu'on n'a pas soulevé de nouveau : la créature n'est pas restée
+    // en main entre deux visites.
+    await banc.agir('sud', 1);
+    expect(banc.jeu.state.equipe.map((membre) => membre.uid)).toEqual(ordre);
+  });
+
+  it('n’offre aucune flèche là où elle ne mènerait nulle part', async () => {
+    const seule = await bancDansEquipe(1);
+    seule.trame();
+    // Une équipe d'une seule créature n'a rien à ranger : le clic dans la zone des
+    // flèches revient donc à la ligne, et ouvre la fiche comme partout ailleurs.
+    seule.entrees.cliquer(VIRTUAL_WIDTH - 34 + 6, 30 + 11 + 5);
+    await seule.trameAsync();
+    expect((seule.jeu.sommet as unknown as { onglet: string }).onglet).toBe('fiche');
+
+    const trois = await bancDansEquipe(3);
+    const ordre = trois.jeu.state.equipe.map((membre) => membre.uid);
+    // La flèche « haut » du premier rang n'existe pas non plus : rien au-dessus.
+    trois.entrees.cliquer(VIRTUAL_WIDTH - 34 + 6, 30 + 5);
+    await trois.trameAsync();
+    expect(trois.jeu.state.equipe.map((membre) => membre.uid)).toEqual(ordre);
+  });
+
+  it('donne les cinq statistiques sur la fiche d’une créature', async () => {
+    const banc = await bancDansEquipe(2);
+    await banc.agir('valider', 1);
+
+    debordements = [];
+    textesDessines = [];
+    banc.trame();
+
+    const creature = banc.jeu.state.equipe[0]!;
+    for (const stat of BATTLE_STATS) {
+      expect(textesDessines, `${stat} manque à la fiche`).toContain(STAT_NAMES[stat].court);
+      expect(textesDessines, `la valeur de ${stat} manque`).toContain(`${statistique(creature, stat)}`);
+    }
+    expect(debordements, 'la colonne de statistiques déborde').toEqual([]);
+  });
+
+  /**
+   * La fiche est pleine, et la colonne de statistiques s'est glissée dans la seule
+   * place qui restait. Un texte qui en percute un autre ne déborde d'aucun bord : la
+   * mesure de débordement ne le voit pas, et rien ne le signalerait avant qu'un joueur
+   * ne lise « Talent : RégénéATT » sur un écran étroit.
+   */
+  it('n’empile aucun texte sur un autre, à la plus petite taille d’écran', async () => {
+    const banc = await bancDansEquipe(2);
+    await banc.agir('valider', 1);
+
+    const boites: { texte: string; x: number; y: number; droite: number }[] = [];
+    const peintre = banc.jeu.peintre;
+    const dessine = peintre.texte.bind(peintre);
+    peintre.texte = (contenu: string, x: number, y: number, options = {}) => {
+      boites.push({ texte: contenu, x, y, droite: x + peintre.largeurTexte(contenu) });
+      dessine(contenu, x, y, options);
+    };
+    banc.trame();
+
+    for (const boite of boites) {
+      for (const autre of boites) {
+        if (boite === autre || boite.y !== autre.y || boite.x > autre.x) continue;
+        expect(
+          boite.droite,
+          `« ${boite.texte} » recouvre « ${autre.texte} » sur la ligne ${boite.y}`,
+        ).toBeLessThanOrEqual(autre.x);
+      }
+    }
+  });
+});
+
+/**
+ * Le changement proposé à l'arrivée d'une créature adverse.
+ *
+ * Changer de créature existait depuis toujours, enfoui sous « Équipe » dans le menu
+ * racine, et se voyait si peu qu'on jouait des parties entières sans le trouver. Il se
+ * propose désormais au seul moment où il ne coûte rien : quand un adversaire vient de
+ * tomber et que le suivant n'a pas encore joué.
+ */
+describe('changement offert', () => {
+  function bancContreDeuxAdversaires(taille: number): Banc {
+    const banc = creerBanc();
+    for (let index = 0; index < taille; index++) {
+      accueillirCreature(
+        banc.jeu.state,
+        creerCreature(makeRng(70 + index), {
+          uid: prochainIdentifiant(banc.jeu.state),
+          speciesId: 'folianz',
+          niveau: 40,
+          origine: 'brume-3f7a',
+        }),
+      );
+    }
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'dresseur',
+        dresseur: {
+          kind: 'dresseur',
+          id: 'dresseur-test',
+          x: 0,
+          y: 0,
+          sprite: CHARACTER_IDS[0]!,
+          dialogue: 'dialogue.villageois.0',
+          dialogueVaincu: 'dialogue.villageois.0',
+          equipe: [],
+          recompense: 10,
+          vision: 1,
+          regard: 'sud',
+        },
+        adversaires: [1, 2].map((rang) =>
+          creerCreature(makeRng(80 + rang), {
+            uid: `adverse-${rang}`,
+            speciesId: 'plumelle',
+            niveau: 3,
+            origine: 'brume-3f7a',
+          }),
+        ),
+      }),
+    );
+    for (let i = 0; i < 80 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    return banc;
+  }
+
+  it('propose le changement quand le dresseur envoie la suivante', () => {
+    const banc = bancContreDeuxAdversaires(3);
+
+    // Un niveau quarante contre un niveau trois : le premier adversaire tombe du coup.
+    banc.entrees.presser('valider'); // « Attaquer »
+    banc.trame();
+    banc.entrees.presser('valider'); // la première attaque
+    banc.trame();
+    // Les répliques du tour s'écoulent à la pression. « Annuler » les fait défiler mais
+    // ne répond à aucune question : celle du changement reste donc affichée à la fin.
+    textesDessines = [];
+    for (let i = 0; i < 400; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    expect(textesDessines, 'la question de changement est posée').toContain(banc.jeu.t('combat.changerQuestion'));
+    expect(textesDessines, 'avec de quoi répondre').toContain(banc.jeu.t('depart.oui'));
+  });
+
+  it('ne propose rien à qui n’a qu’une créature', () => {
+    const banc = bancContreDeuxAdversaires(1);
+
+    banc.entrees.presser('valider');
+    banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+    textesDessines = [];
+    for (let i = 0; i < 400; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    // Le premier adversaire tombe, le second entre — et rien n'est proposé, puisqu'il
+    // n'y a personne à mettre à la place.
+    expect(textesDessines).not.toContain(banc.jeu.t('combat.changerQuestion'));
+    expect(
+      (banc.jeu.sommet as unknown as { indexAdverse: number }).indexAdverse,
+      'le second adversaire est bien entré',
+    ).toBe(1);
+  });
+});
+
+/**
+ * Les hausses et les baisses en cours, enfin lisibles.
+ *
+ * Les étages se posaient, se lisaient dans chaque calcul de dégâts, et ne se voyaient
+ * nulle part : lancer Aiguisage deux fois ne laissait aucune trace à l'écran, et rien
+ * n'expliquait pourquoi l'on encaissait soudain davantage.
+ */
+describe('étages de statistique à l’écran', () => {
+  it('affiche les crans en cours sous la jauge, et rien quand il n’y en a pas', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(90), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'folianz',
+        niveau: 20,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(91), {
+            uid: 'sauvage-etages',
+            speciesId: 'plumelle',
+            niveau: 12,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+
+    // Une créature intacte n'affiche aucune ligne d'étages : elle n'aurait rien à dire.
+    textesDessines = [];
+    banc.trame();
+    expect(textesDessines.some((texte) => texte.includes('%'))).toBe(false);
+
+    const combat = banc.jeu.sommet as unknown as {
+      state: { joueur: { etages: Record<string, number> }; adversaire: { etages: Record<string, number> } };
+    };
+    combat.state.joueur.etages['attaque'] = 1;
+    combat.state.adversaire.etages['defense'] = -2;
+
+    debordements = [];
+    textesDessines = [];
+    banc.trame();
+
+    expect(textesDessines, 'la hausse du joueur').toContain(`${STAT_NAMES.attaque.court} +50%`);
+    expect(textesDessines, 'la baisse de l’adversaire').toContain(`${STAT_NAMES.defense.court} -50%`);
+    expect(debordements, 'la ligne d’étages déborde').toEqual([]);
   });
 });

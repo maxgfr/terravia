@@ -202,6 +202,30 @@ export function echangerAvecReserve(state: GameState, indexEquipe: number, index
   return true;
 }
 
+/**
+ * Déplace une créature dans l'équipe, les autres se refermant derrière elle.
+ *
+ * L'ordre de l'équipe n'est pas décoratif : il décide qui part au combat en premier, et
+ * l'ordre dans lequel les remplaçants sont proposés quand une créature tombe. Rien ne
+ * permettait de le changer — seuls les allers-retours par la réserve y arrivaient, et
+ * encore, par accident.
+ *
+ * Retrait puis insertion, et non échange : une créature portée du sixième rang au
+ * premier doit décaler les cinq autres d'un cran, pas troquer sa place avec l'une
+ * d'elles. Comme l'écran ne la déplace que d'un rang à la fois, les deux reviennent au
+ * même sur un pas — la différence n'apparaît que sur un saut, et c'est celle-là qui est
+ * juste.
+ */
+export function deplacerDansEquipe(state: GameState, depuis: number, vers: number): boolean {
+  if (depuis === vers) return false;
+  if (depuis < 0 || depuis >= state.equipe.length) return false;
+  if (vers < 0 || vers >= state.equipe.length) return false;
+  const [portee] = state.equipe.splice(depuis, 1);
+  if (!portee) return false;
+  state.equipe.splice(vers, 0, portee);
+  return true;
+}
+
 /** Dépose une créature en réserve. Refuse de vider entièrement l'équipe. */
 export function deposerEnReserve(state: GameState, index: number): boolean {
   if (state.equipe.length <= 1) return false;

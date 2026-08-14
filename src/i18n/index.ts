@@ -59,6 +59,10 @@ const FR = {
   'menu.reprendre': 'Valider : reprendre dans l’équipe',
   'menu.echanger': 'Valider : échanger avec la gauche',
   'menu.equipeMinimale': 'Vous ne pouvez pas partir sans créature.',
+  // L'ordre de l'équipe décide qui part au combat en premier, et dans quel ordre le
+  // remplaçant est proposé quand une créature tombe. Il ne se réarrangeait pas.
+  'menu.ordreAide': '▶ : déplacer · Valider : fiche',
+  'menu.ordrePorte': '▲ ▼ : placer · Valider : poser',
   'menu.rejointEquipe': '{nom} rejoint l’équipe.',
   'menu.echange': '{nom} prend sa place dans l’équipe.',
   'menu.sansCarte': 'Vous n’avez pas de carte. Il y en avait une au bourg.',
@@ -233,8 +237,10 @@ const FR = {
   'combat.defaite': 'Toutes vos créatures sont hors de combat…',
   'combat.retourBourg': 'Vous reprenez vos esprits au dernier lieu sûr.',
   'combat.plusDePp': 'Plus aucune attaque disponible.',
-  'combat.pasDeFuite': 'Choisissez une créature encore debout.',
+  'combat.creatureKo': 'Choisissez une créature encore debout.',
   'combat.dejaEnJeu': '{nom} est déjà sur le terrain.',
+  'combat.quiEnvoyer': 'Qui prend la relève ?',
+  'combat.changerQuestion': 'Changer de créature avant qu’elle attaque ?',
   'combat.captureImpossible': 'On ne capture pas la créature d’un dresseur.',
   'combat.reprise': 'Le combat contre {nom} reprend.',
 
@@ -257,6 +263,26 @@ const FR = {
   'encyclopedie.usage.partout': 'En combat et hors combat',
   'encyclopedie.enBoutique': 'En vente à la boutique du village, {prix} pièces',
   'encyclopedie.aTrouver': 'Se trouve dans le monde, pas en boutique',
+
+  // ── Effet d'une attaque ────────────────────────────────────────────────────
+  // Une attaque de statut n'affichait que le mot « Statut » : rien ne disait qu'Onde de
+  // Choc paralyse à coup sûr, ni que Repli vaut la moitié d'une Défense en plus. Ces
+  // gabarits rendent `move.effet` — la donnée existait depuis toujours, sans lecteur.
+  //
+  // Les pourcentages sont calculés depuis `stageMultiplier`, jamais écrits en dur :
+  // rééquilibrer la formule corrige la phrase du même coup.
+  'effet.soiHausse': 'Augmente son {stat} de {pourcent} %',
+  'effet.soiBaisse': 'Baisse son {stat} de {pourcent} %',
+  'effet.cibleHausse': 'Augmente {stat} de la cible de {pourcent} %',
+  'effet.cibleBaisse': 'Baisse {stat} de la cible de {pourcent} %',
+  'effet.statut': 'Inflige {statut}',
+  'effet.chance': '{effet} ({chance} % du temps)',
+  'effet.coupsMultiples': 'Frappe {min} à {max} fois',
+  'effet.recul': 'Le lanceur encaisse {pourcent} % des dégâts',
+  'effet.soin': 'Rend {pourcent} % des PV maximum',
+  'effet.soinGuerit': 'Rend {pourcent} % des PV maximum et guérit les altérations',
+  'effet.drain': 'Rend au lanceur {pourcent} % des dégâts infligés',
+  'effet.critique': 'Fait souvent mouche',
 
   // ── Fin de partie ──────────────────────────────────────────────────────────
   'fin.titre': 'TERRAVIA TRAVERSÉE',
@@ -391,6 +417,8 @@ const EN: Record<CleTexte, string> = {
   'menu.reprendre': 'Confirm: take into the party',
   'menu.echanger': 'Confirm: swap with the left pick',
   'menu.equipeMinimale': 'You cannot leave without a creature.',
+  'menu.ordreAide': '▶: reorder · Confirm: details',
+  'menu.ordrePorte': '▲ ▼: place · Confirm: drop',
   'menu.rejointEquipe': '{nom} joins the party.',
   'menu.echange': '{nom} takes its place in the party.',
   'menu.sansCarte': 'You have no map. There was one back in the hamlet.',
@@ -553,8 +581,10 @@ const EN: Record<CleTexte, string> = {
   'combat.defaite': 'Your whole team is out of the fight…',
   'combat.retourBourg': 'You come to at the last safe place.',
   'combat.plusDePp': 'No move left to use.',
-  'combat.pasDeFuite': 'Pick a creature still standing.',
+  'combat.creatureKo': 'Pick a creature still standing.',
   'combat.dejaEnJeu': '{nom} is already out.',
+  'combat.quiEnvoyer': 'Who steps in?',
+  'combat.changerQuestion': 'Switch creatures before it attacks?',
   'combat.captureImpossible': 'You cannot catch another trainer’s creature.',
   'combat.reprise': 'The battle against {nom} resumes.',
 
@@ -576,6 +606,19 @@ const EN: Record<CleTexte, string> = {
   'encyclopedie.usage.partout': 'In and out of battle',
   'encyclopedie.enBoutique': 'Sold at the village shop, {prix} coins',
   'encyclopedie.aTrouver': 'Found in the world, not sold',
+
+  'effet.soiHausse': 'Raises its own {stat} by {pourcent}%',
+  'effet.soiBaisse': 'Lowers its own {stat} by {pourcent}%',
+  'effet.cibleHausse': 'Raises the target’s {stat} by {pourcent}%',
+  'effet.cibleBaisse': 'Lowers the target’s {stat} by {pourcent}%',
+  'effet.statut': 'Inflicts {statut}',
+  'effet.chance': '{effet} ({chance}% of the time)',
+  'effet.coupsMultiples': 'Strikes {min} to {max} times',
+  'effet.recul': 'The user takes {pourcent}% of the damage dealt',
+  'effet.soin': 'Restores {pourcent}% of max HP',
+  'effet.soinGuerit': 'Restores {pourcent}% of max HP and cures status conditions',
+  'effet.drain': 'Gives the user {pourcent}% of the damage dealt',
+  'effet.critique': 'Lands critical hits often',
 
   'fin.titre': 'TERRAVIA CROSSED',
   'fin.temps': 'Play time',
