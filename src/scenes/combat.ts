@@ -108,6 +108,24 @@ export class SceneCombat implements Scene {
    * le coup porter. La faire glisser est ce qui donne au combat sa lisibilité.
    */
   private readonly pvAffiches: Record<Cote, number> = { joueur: 1, adversaire: 1 };
+  /**
+   * Ratio de points de vie **raconté** : la valeur que la barre rejoint.
+   *
+   * Elle ne suit pas l'état, mais le récit. Le moteur résout le tour en entier avant de
+   * rendre la main : quand la première réplique s'affiche, les deux camps sont déjà à
+   * leurs points de vie de fin de tour. La barre visait cet état — et descendait donc des
+   * deux côtés à la fois, sous « X utilise Y », si bien que le tour par tour ne se lisait
+   * plus. Elle n'avance désormais qu'au moment où l'événement qui la fait bouger se dit.
+   *
+   * C'est la même correction que celle déjà appliquée à la secousse, poussée jusqu'à la
+   * jauge : `pvRestants` voyageait dans chaque événement depuis toujours, sans lecteur.
+   *
+   * Un ratio, et non des points bruts : gagner un niveau ou évoluer relève le maximum en
+   * conservant la proportion. Une cible en points serait à recalculer à chaque fois, et
+   * un oubli afficherait une jauge grossièrement fausse ; une cible en proportion reste
+   * juste d'elle-même.
+   */
+  private readonly pvRacontes: Record<Cote, number> = { joueur: 1, adversaire: 1 };
 
   private readonly rencontre: Rencontre;
   private readonly reprise: CombatEnCours | null;
@@ -190,6 +208,11 @@ export class SceneCombat implements Scene {
     Object.assign(this.state.adversaire.etages, reprise.etagesAdverse);
     this.state.tour = reprise.tour;
     this.state.tentativesFuite = reprise.tentativesFuite;
+    // Un combat repris n'a pas de récit derrière lui : ses jauges partent de l'état
+    // retrouvé. Sans cela elles resteraient sur leur valeur d'ouverture — pleines — et
+    // deux créatures déjà entamées se présenteraient intactes.
+    this.reinitialiserAnimation('joueur');
+    this.reinitialiserAnimation('adversaire');
     jeu.dialogue.dire(jeu.t('combat.reprise', { nom: jeu.nomCreature(this.adversaire) }));
   }
 
@@ -275,8 +298,7 @@ export class SceneCombat implements Scene {
     if (this.entree > 0) this.entree = Math.max(0, this.entree - step * 2.6);
 
     for (const cote of ['joueur', 'adversaire'] as const) {
-      const combattant = cote === 'joueur' ? this.state.joueur : this.state.adversaire;
-      const vise = combattant.instance.pv / pvMax(combattant.instance);
+      const vise = this.pvRacontes[cote];
       // Rattrapage proportionnel puis plancher constant : sans le plancher, la barre
       // s'approche indéfiniment sans jamais arriver.
       const ecart = vise - this.pvAffiches[cote];
@@ -288,12 +310,60 @@ export class SceneCombat implements Scene {
     }
   }
 
-  /** Remet les animations à leur début quand une créature entre en lice. */
+  /**
+   * Remet les animations à leur début quand une créature entre en lice.
+   *
+   * C'est le seul endroit où la barre se raccroche à l'état : une créature qui arrive
+   * n'a pas d'histoire, sa jauge part donc de ses points de vie réels. Partout ailleurs,
+   * c'est le récit qui la fait bouger.
+   */
   private reinitialiserAnimation(cote: Cote): void {
-    const combattant = cote === 'joueur' ? this.state.joueur : this.state.adversaire;
-    this.pvAffiches[cote] = combattant.instance.pv / pvMax(combattant.instance);
+    this.raccrocherJaugeALEtat(cote);
     this.chute[cote] = 0;
     this.entree = 1;
+  }
+
+  /**
+   * Repose la jauge sur les points de vie réels, barre comprise.
+   *
+   * Pour une créature qui vient d'arriver : elle n'a pas d'histoire derrière elle, sa
+   * barre n'a donc rien à parcourir.
+   */
+  private raccrocherJaugeALEtat(cote: Cote): void {
+    this.reviserCible(cote);
+    this.pvAffiches[cote] = this.pvRacontes[cote];
+  }
+
+  /**
+   * Réaccorde la cible sur l'état, en laissant la barre y glisser.
+   *
+   * Pour une créature qui reste en lice mais dont l'enveloppe a changé — un niveau gagné,
+   * une évolution. La proportion bouge alors sans qu'aucun événement ne le raconte : la
+   * cible doit la rattraper, sinon la jauge resterait sur celle d'avant. La barre, elle,
+   * y va en glissant : c'est la même créature, rien ne justifie qu'elle saute.
+   */
+  private reviserCible(cote: Cote): void {
+    const combattant = cote === 'joueur' ? this.state.joueur : this.state.adversaire;
+    this.pvRacontes[cote] = combattant.instance.pv / pvMax(combattant.instance);
+  }
+
+  /**
+   * Solde les descentes en cours avant d'en ouvrir de nouvelles.
+   *
+   * Un joueur qui martèle la touche fait défiler les répliques plus vite que la jauge ne
+   * se vide. Sans ce rattrapage, la réplique suivante reprendrait la barre en chemin et
+   * effacerait la perte précédente : deux coups n'en feraient qu'un à l'écran, et l'on
+   * retomberait sur le défaut qu'on corrige. On saute donc à la valeur due plutôt que
+   * d'attendre — l'animation reste décorative, et rien ne bloque jamais l'entrée.
+   *
+   * Une fois par réplique, et non par événement : une attaque à coups multiples pose
+   * plusieurs pertes sous une seule réplique, et elles doivent se lire comme une seule
+   * descente continue plutôt que comme un saut suivi du dernier coup.
+   */
+  private rattraperLesJauges(): void {
+    for (const cote of ['joueur', 'adversaire'] as const) {
+      this.pvAffiches[cote] = this.pvRacontes[cote];
+    }
   }
 
   private naviguer(jeu: Jeu, nombre: number, colonnes = 1): void {
@@ -563,19 +633,24 @@ export class SceneCombat implements Scene {
     const avantToutTexte: (() => void)[] = [];
 
     for (const evenement of evenements) {
+      const precedente = etapes[etapes.length - 1];
       const message = this.decrire(jeu, evenement);
       if (message) etapes.push({ texte: message, effets: [] });
 
-      const effet = this.animationDe(evenement);
-      if (!effet) continue;
+      const animation = this.animationDe(evenement);
+      if (!animation) continue;
+      const hote = animation.sous === 'cause' ? precedente : etapes[etapes.length - 1];
       // Une animation sans réplique devant elle n'a rien à attendre : c'est le cas d'un
       // tour entièrement muet, où elle joue tout de suite.
-      (etapes[etapes.length - 1]?.effets ?? avantToutTexte).push(effet);
+      (hote?.effets ?? avantToutTexte).push(animation.effet);
     }
 
     for (const effet of avantToutTexte) effet();
     for (const etape of etapes) {
       jeu.dialogue.direAvec(etape.texte, () => {
+        // La réplique précédente est soldée avant que celle-ci ne pose ses cibles : c'est
+        // ce qui empêche un joueur pressé de fondre deux pertes en une seule descente.
+        this.rattraperLesJauges();
         for (const effet of etape.effets) effet();
       });
     }
@@ -587,20 +662,49 @@ export class SceneCombat implements Scene {
     });
   }
 
-  /** Ce qu'un événement fait bouger à l'écran, ou `null` s'il ne bouge rien. */
-  private animationDe(evenement: BattleEvent): (() => void) | null {
-    // La secousse suit celui qui encaisse : elle s'appliquait à l'adversaire même
-    // quand c'était nous qui prenions le coup.
-    if (evenement.type === 'degats' && evenement.montant > 0) {
+  /**
+   * Ce qu'un événement fait bouger à l'écran, et sous quelle réplique, ou `null` s'il ne
+   * bouge rien.
+   *
+   * Deux rattachements, parce qu'il y a deux sortes d'animations. Celle qui **annonce**
+   * accompagne sa propre réplique : la créature s'affaisse quand on lit « X est K.O. ! ».
+   * Celle qui suit sa **cause** accompagne la réplique qui l'a provoquée : le coup se voit
+   * porter sous « X utilise Y ! », et le commentaire d'efficacité vient après, en
+   * commentaire.
+   *
+   * Sans cette distinction, une perte de points de vie se rangeait sous la dernière
+   * réplique produite — donc sous « C'est très efficace ! » quand il y en avait une, et
+   * sous l'attaque quand il n'y en avait pas. La jauge tombait un appui plus tard selon
+   * la table des types, ce qui la rendait illisible : on ne savait plus quel coup on
+   * regardait.
+   */
+  private animationDe(
+    evenement: BattleEvent,
+  ): { readonly effet: () => void; readonly sous: 'cause' | 'annonce' } | null {
+    // Perte et gain de points de vie déplacent la jauge. Ils portent tous deux
+    // `pvRestants` — l'état du camp visé *à cet instant de la séquence*, et non en fin de
+    // tour : c'est cette valeur-là, et elle seule, qui rend le tour par tour lisible.
+    if (evenement.type === 'degats' || evenement.type === 'soin') {
       const cote = evenement.cible;
-      return () => {
-        this.tremblement = 1;
-        this.coteFrappe = cote;
+      const combattant = cote === 'joueur' ? this.state.joueur : this.state.adversaire;
+      const vise = evenement.pvRestants / pvMax(combattant.instance);
+      // La secousse suit celui qui encaisse, et ne suit que les coups qui portent : une
+      // attaque sans effet déplace la cible de la jauge — vers la même valeur — sans
+      // faire trembler personne.
+      const secoue = evenement.type === 'degats' && evenement.montant > 0;
+      return {
+        sous: 'cause',
+        effet: () => {
+          this.pvRacontes[cote] = vise;
+          if (!secoue) return;
+          this.tremblement = 1;
+          this.coteFrappe = cote;
+        },
       };
     }
     if (evenement.type === 'ko') {
       const cote = evenement.cible;
-      return () => void (this.chute[cote] = 1);
+      return { sous: 'annonce', effet: () => void (this.chute[cote] = 1) };
     }
     return null;
   }
@@ -715,6 +819,10 @@ export class SceneCombat implements Scene {
     const xp = experienceGagnee(vaincu, this.rencontre.genre === 'dresseur');
     const avant = gagnante.niveau;
     const gain = gagnerExperience(gagnante, xp);
+    // Monter de niveau relève le maximum et ajoute la différence aux points courants : la
+    // proportion change sans qu'aucun événement de combat ne le dise. La jauge s'ajuste
+    // donc ici, sous la réplique d'expérience qui l'explique.
+    this.reviserCible('joueur');
     jeu.dialogue.dire(jeu.t('combat.gainXp', { nom: jeu.nomCreature(gagnante), xp }));
 
     // Le dressage se gagnait en silence : le joueur n'avait aucun moyen de savoir que
@@ -749,6 +857,10 @@ export class SceneCombat implements Scene {
       const evolue = evoluer(gagnante, gain.evolution);
       jeu.state.equipe[this.indexJoueur] = evolue;
       this.state.joueur = creerCombattant(evolue);
+      // Une évolution change elle aussi le maximum : même correction, et pour la même
+      // raison. La seule cible, et non toute l'animation d'entrée — la créature est déjà
+      // en place, elle n'a pas à réentrer par le bord de l'écran.
+      this.reviserCible('joueur');
       jeu.dialogue.dire(
         jeu.t('combat.evolue', {
           nom: SPECIES[gagnante.speciesId].nom[jeu.langue],

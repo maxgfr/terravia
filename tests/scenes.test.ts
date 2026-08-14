@@ -1202,6 +1202,34 @@ describe('reprise d’un combat interrompu', () => {
     expect(repris.jeu.sommet?.nom).toBe('overworld');
   });
 
+  /**
+   * Un combat rouvert n'a pas de récit derrière lui : ses jauges doivent partir de l'état
+   * retrouvé. Elles suivent désormais les événements et non les points de vie ; sans
+   * réamorçage explicite, deux créatures déjà bien entamées se présentaient donc intactes,
+   * puis se vidaient d'un coup au premier événement du tour suivant.
+   */
+  it('rouvre les jauges sur les points de vie retrouvés, et non pleines', () => {
+    const banc = bancAvecCombat();
+    banc.trame();
+    const mien = banc.jeu.state.equipe[0]!;
+    const adverse = banc.jeu.state.combat!.adversaires[0]!;
+    mien.pv = Math.floor(pvMax(mien) / 4);
+    adverse.pv = Math.floor(pvMax(adverse) / 2);
+
+    const repris = reprendre(JSON.stringify(exporterPartie(banc.jeu.state, HORODATAGE)));
+    expect(repris.jeu.sommet?.nom).toBe('combat');
+    const scene = repris.jeu.sommet as unknown as { pvAffiches: Record<string, number> };
+
+    expect(scene.pvAffiches.joueur, 'la jauge reprise doit montrer l’état réel').toBeCloseTo(
+      repris.jeu.state.equipe[0]!.pv / pvMax(repris.jeu.state.equipe[0]!),
+      2,
+    );
+    expect(scene.pvAffiches.adversaire).toBeCloseTo(
+      repris.jeu.state.combat!.adversaires[0]!.pv / pvMax(repris.jeu.state.combat!.adversaires[0]!),
+      2,
+    );
+  });
+
   it('conserve les étages de statistiques et le compteur de tours', () => {
     const banc = bancAvecCombat();
     banc.trame();
@@ -1417,24 +1445,266 @@ describe('animations de combat', () => {
     expect(verifications, 'le tour doit avoir annoncé notre attaque').toBeGreaterThan(0);
   });
 
-  it('fait rattraper la barre de vie au lieu de la faire sauter', () => {
-    const banc = bancAnime();
-    // On déroule l'ouverture, puis on inflige des dégâts.
+  /**
+   * La suite du doute précédent : « les deux vies descendent en même temps ».
+   *
+   * Le moteur résout le tour en entier avant de rendre la main — les deux camps sont
+   * déjà à leurs points de vie de fin de tour quand la première réplique s'affiche. La
+   * barre visait cet état, et non le récit : elle partait donc des deux côtés à la fois,
+   * sous « X utilise Y », et le tour par tour ne se lisait plus nulle part.
+   *
+   * On tient ici la première réplique à l'écran, sans rien presser, et on regarde les
+   * deux barres : celle du camp visé descend, celle de l'attaquant ne bouge pas encore.
+   */
+  it('ne fait descendre que la barre du camp visé par la réplique affichée', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(101), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'zephyrion',
+        niveau: 30,
+        origine: 'brume-3f7a',
+      }),
+    );
+    // Même appariement que le test précédent : une attaque faible contre une créature
+    // endurante, donc les deux survivent au tour et chacune frappe une fois.
+    banc.jeu.state.equipe[0]!.moves = [{ id: 'ruade', pp: 20 }];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(102), {
+            uid: 'sauvage-c',
+            speciesId: 'menhirok',
+            niveau: 30,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+
     for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
       banc.entrees.presser('annuler');
       banc.trame();
     }
-    const adverse = banc.jeu.state.combat!.adversaires[0]!;
-    adverse.pv = Math.floor(pvMax(adverse) / 2);
-
-    // La barre ne peut pas être à sa cible dès la trame suivante…
+    // Menu d'actions → liste d'attaques → première attaque.
+    banc.entrees.presser('valider');
     banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+
     const scene = banc.jeu.sommet as unknown as { pvAffiches: Record<string, number> };
-    expect(scene.pvAffiches.adversaire, 'la barre doit rattraper, pas sauter').toBeGreaterThan(0.55);
+
+    // On déroule le tour et on guette l'instant où une jauge quitte le plein. À cet
+    // instant précis, l'autre doit encore être intacte : c'est toute la règle. Laquelle
+    // des deux part la première dépend de l'initiative, et ne regarde pas ce test.
+    let premiereBougee: string | null = null;
+    for (let i = 0; i < 400 && banc.jeu.dialogue.actif && premiereBougee === null; i++) {
+      const joueur = scene.pvAffiches.joueur!;
+      const adversaire = scene.pvAffiches.adversaire!;
+      if (joueur < 1 || adversaire < 1) {
+        premiereBougee = joueur < 1 ? 'joueur' : 'adversaire';
+        expect(
+          joueur < 1 ? adversaire : joueur,
+          'les deux vies descendaient ensemble : le tour par tour ne se lisait plus',
+        ).toBe(1);
+      }
+      banc.entrees.presser('valider');
+      banc.trame();
+    }
+    expect(premiereBougee, 'le tour aurait dû faire perdre des points de vie').not.toBeNull();
+
+    // …et le tour ne s'arrête pas là : l'autre camp riposte, sa jauge finit par bouger
+    // aussi. Sans quoi le test passerait sur un tour où un seul coup a porté, et ne
+    // dirait donc rien de l'enchaînement qu'il prétend vérifier.
+    const riposte = premiereBougee === 'joueur' ? 'adversaire' : 'joueur';
+    let aRiposte = false;
+    for (let i = 0; i < 400 && banc.jeu.sommet?.nom === 'combat' && !aRiposte; i++) {
+      if (scene.pvAffiches[riposte]! < 1) aRiposte = true;
+      banc.entrees.presser('valider');
+      banc.trame();
+    }
+    expect(aRiposte, 'le camp qui a frappé en premier doit encaisser à son tour').toBe(true);
+  });
+
+  /**
+   * Les dégâts passent ici par une vraie attaque, et non par une écriture directe sur les
+   * points de vie : depuis que la jauge suit le récit et non l'état, une valeur changée
+   * dans le dos du moteur ne la déplace plus — et c'est précisément la propriété qu'on
+   * cherchait. Le test dit donc la même chose qu'avant, par le chemin du joueur.
+   */
+  /**
+   * Sous quelle réplique la jauge tombe.
+   *
+   * Elle se rangeait sous la dernière réplique produite par le tour : donc sous « C'est
+   * très efficace ! » quand la table des types en donnait une, et sous l'attaque quand
+   * elle n'en donnait pas. Un même coup faisait ainsi tomber la barre un appui plus tard
+   * selon le type de l'attaque, et l'on ne savait plus quel coup on regardait. Le coup se
+   * voit désormais porter sous la réplique qui l'annonce ; l'efficacité vient après, en
+   * commentaire.
+   *
+   * Ruade est neutre et Menhirok est de type roche : le tour produit donc bien la
+   * réplique d'efficacité qui faisait dériver la jauge.
+   */
+  it('fait tomber la jauge sous l’attaque, et non sous le commentaire d’efficacité', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(101), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'zephyrion',
+        niveau: 30,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.state.equipe[0]!.moves = [{ id: 'ruade', pp: 20 }];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        adversaires: [
+          creerCreature(makeRng(102), {
+            uid: 'sauvage-e',
+            speciesId: 'menhirok',
+            niveau: 30,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    banc.entrees.presser('valider');
+    banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+
+    const scene = banc.jeu.sommet as unknown as { pvAffiches: Record<string, number> };
+    const dialogue = banc.jeu.dialogue as unknown as { courant: string | null };
+    const modele = banc.jeu.t('combat.utilise', { nom: '\u0001', attaque: '\u0002' });
+    const debutAttaque = (nom: string): string => modele.replace('\u0001', nom).split('\u0002')[0]!;
+    const nomJoueur = banc.jeu.nomCreature(banc.jeu.state.equipe[0]!);
+
+    const ligne = dialogue.courant ?? '';
+    expect(ligne, 'le tour doit s’ouvrir sur notre attaque').toContain(debutAttaque(nomJoueur));
+
+    // On tient cette réplique-là à l'écran, sans rien presser : la jauge doit tomber ici.
+    for (let i = 0; i < 60; i++) banc.trame();
+    expect(dialogue.courant, 'la réplique ne doit pas avoir changé').toBe(ligne);
+    expect(
+      scene.pvAffiches.adversaire,
+      'le coup doit se voir porter sous la réplique qui l’annonce',
+    ).toBeLessThan(1);
+    expect(scene.pvAffiches.joueur, 'nous n’avons pas encore été frappés').toBe(1);
+  });
+
+  it('fait rattraper la barre de vie au lieu de la faire sauter', () => {
+    const banc = bancAnime();
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    // Menu d'actions → liste d'attaques → première attaque.
+    banc.entrees.presser('valider');
+    banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+
+    const scene = banc.jeu.sommet as unknown as { pvAffiches: Record<string, number> };
+    const adverse = banc.jeu.state.combat!.adversaires[0]!;
+    const cible = adverse.pv / pvMax(adverse);
+    expect(cible, 'l’attaque devait entamer l’adversaire').toBeLessThan(1);
+
+    // On avance jusqu'à la première trame où la jauge a bougé.
+    let depart = 1;
+    for (let i = 0; i < 300 && depart === 1; i++) {
+      banc.entrees.presser('valider');
+      banc.trame();
+      depart = scene.pvAffiches.adversaire!;
+    }
+    // Elle est partie, mais elle ne peut pas être arrivée : c'est tout l'objet du
+    // rattrapage — on doit voir le coup porter, pas seulement en lire le résultat.
+    expect(depart, 'la barre doit rattraper, pas sauter').toBeGreaterThan(cible);
 
     // …mais elle doit y arriver, et s'arrêter exactement dessus.
     for (let i = 0; i < 300; i++) banc.trame();
-    expect(scene.pvAffiches.adversaire).toBeCloseTo(0.5, 2);
+    expect(scene.pvAffiches.adversaire).toBeCloseTo(cible, 2);
+  });
+
+  /**
+   * Une attaque à coups multiples pose plusieurs pertes sous une seule réplique : la
+   * table des types laisse Rafale de Cailloux neutre contre un Mulotin, donc aucun de ses
+   * coups ne mérite sa propre phrase. Ils doivent se lire comme une seule descente
+   * continue — c'est ce que fait le rattrapage, posé une fois par réplique et non une
+   * fois par coup. À raison d'un saut par coup, la jauge se téléporterait à l'avant-
+   * dernier avant d'animer le seul dernier.
+   */
+  it('fait descendre la jauge d’un trait sous une attaque à coups multiples', () => {
+    const banc = creerBanc();
+    accueillirCreature(
+      banc.jeu.state,
+      creerCreature(makeRng(31), {
+        uid: prochainIdentifiant(banc.jeu.state),
+        speciesId: 'zephyrion',
+        niveau: 30,
+        origine: 'brume-3f7a',
+      }),
+    );
+    banc.jeu.state.equipe[0]!.moves = [{ id: 'rafaleDeCailloux', pp: 20 }];
+    banc.jeu.pousser(new SceneOverworld());
+    banc.jeu.dialogue.vider();
+    banc.jeu.pousser(
+      new SceneCombat({
+        genre: 'sauvage',
+        // Lent, pour que le joueur frappe le premier ; endurant, pour encaisser cinq
+        // coups sans tomber ; et de type métal, contre lequel la Roche est neutre — donc
+        // aucun coup ne décroche sa propre réplique.
+        adversaires: [
+          creerCreature(makeRng(32), {
+            uid: 'sauvage-d',
+            speciesId: 'acierac',
+            niveau: 30,
+            origine: 'brume-3f7a',
+          }),
+        ],
+      }),
+    );
+
+    for (let i = 0; i < 60 && banc.jeu.dialogue.actif; i++) {
+      banc.entrees.presser('annuler');
+      banc.trame();
+    }
+    banc.entrees.presser('valider');
+    banc.trame();
+    banc.entrees.presser('valider');
+    banc.trame();
+
+    const scene = banc.jeu.sommet as unknown as { pvAffiches: Record<string, number> };
+    expect(scene.pvAffiches.adversaire, 'la jauge ne doit pas avoir sauté').toBe(1);
+
+    // On tient la réplique à l'écran et on regarde la barre descendre, trame par trame.
+    // `animer` ne déplace jamais la jauge de plus d'un dixième de l'écart restant, avec
+    // un plancher constant : tout bond au-delà trahit un saut qu'on n'a pas voulu.
+    let precedent = scene.pvAffiches.adversaire!;
+    let plusGrandPas = 0;
+    for (let i = 0; i < 200; i++) {
+      banc.trame();
+      const courant = scene.pvAffiches.adversaire!;
+      plusGrandPas = Math.max(plusGrandPas, precedent - courant);
+      precedent = courant;
+    }
+    const arrivee = scene.pvAffiches.adversaire!;
+    expect(arrivee, 'les coups doivent avoir porté').toBeLessThan(1);
+    // Le pas le plus large autorisé, mesuré sur l'écart total réellement parcouru.
+    const borne = Math.max((1 - arrivee) * 0.1, 1 / 60 * 0.35) + 0.005;
+    expect(plusGrandPas, 'la jauge s’est téléportée au lieu de glisser').toBeLessThanOrEqual(borne);
   });
 
   it('dessine sans erreur pendant l’entrée et la chute', () => {
