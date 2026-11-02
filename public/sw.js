@@ -13,9 +13,16 @@
  *
  * Le nom du cache porte une version : la changer suffit à faire table rase à la
  * prochaine activation.
+ *
+ * **Ne toucher qu'à ses propres caches.** Le site est servi depuis `maxgfr.github.io`,
+ * une origine partagée par une cinquantaine d'applications : `caches.keys()` y rend les
+ * caches de toutes. En supprimer tout ce qui n'est pas `CACHE`, c'était vider le hors
+ * ligne de chaque autre site à chaque mise à jour de Terravia. Seuls les noms préfixés
+ * `terravia-` sont à nous.
  */
 
-const CACHE = 'terravia-v1';
+const PREFIXE = 'terravia-';
+const CACHE = `${PREFIXE}v1`;
 
 /** La coquille minimale : de quoi démarrer sans réseau. Le reste s'ajoute à l'usage. */
 const SOCLE = ['', 'index.html', 'manifest.webmanifest', 'icone-180.png'];
@@ -36,7 +43,11 @@ self.addEventListener('activate', (evenement) => {
   evenement.waitUntil(
     caches
       .keys()
-      .then((noms) => Promise.all(noms.filter((nom) => nom !== CACHE).map((nom) => caches.delete(nom))))
+      .then((noms) =>
+        Promise.all(
+          noms.filter((nom) => nom.startsWith(PREFIXE) && nom !== CACHE).map((nom) => caches.delete(nom)),
+        ),
+      )
       .then(() => self.clients.claim()),
   );
 });
