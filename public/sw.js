@@ -69,12 +69,16 @@ self.addEventListener('fetch', (evenement) => {
         return reponse;
       })
       .catch(async () => {
-        const enCache = await caches.match(requete);
+        // Chercher dans notre cache seulement. `caches.match()` parcourt tous les caches de
+        // l'origine, ceux des autres sites compris : n'importe lequel pourrait y avoir déposé
+        // une réponse pour une adresse de Terravia, que l'on servirait alors comme la nôtre.
+        const cache = await caches.open(CACHE);
+        const enCache = await cache.match(requete);
         if (enCache) return enCache;
         // Une navigation hors ligne vers une adresse jamais visitée retombe sur la page
         // du jeu : elle sait se reconstruire depuis la sauvegarde locale.
         if (requete.mode === 'navigate') {
-          const accueil = await caches.match(new URL('index.html', self.registration.scope).href);
+          const accueil = await cache.match(new URL('index.html', self.registration.scope).href);
           if (accueil) return accueil;
         }
         throw new Error('hors ligne et absent du cache');
