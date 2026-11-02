@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 // Le jeu est publié sur https://maxgfr.github.io/terravia/ — un « project site ».
 // Sans ce base, Vite émet des chemins absolus /assets/... qui pointent vers la racine
